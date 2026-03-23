@@ -191,6 +191,15 @@ async function registerCommands() {
 }
 
 client.once('clientReady', async () => {
+  client.user.setPresence({
+  activities: [
+    {
+      name: 'Пение птиц',
+      type: 2, // 0=играет, 1=стримит, 2=слушает, 3=смотрит, 5=соревнуется
+    },
+  ],
+  status: 'dnd', // online / idle / dnd / invisible
+});
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
 
   loadData();
