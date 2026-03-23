@@ -264,7 +264,6 @@ client.on('interactionCreate', async (interaction) => {
     .setDescription(
       [
         `**Всего:** ${formatTime(total)}`,
-        `**Сейчас в сессии:** ${formatTime(currentSession)}`,
       ].join('\n')
     )
     .setThumbnail(target.displayAvatarURL({ size: 256 }))
