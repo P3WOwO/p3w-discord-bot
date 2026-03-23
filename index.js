@@ -1,12 +1,24 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, EmbedBuilder, REST, Routes } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  SlashCommandBuilder,
+  EmbedBuilder,
+  REST,
+  Routes,
+} = require('discord.js');
 const fs = require('fs');
 
 const TOKEN = process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;   // Application ID из Discord Developer Portal
-const GUILD_ID = process.env.GUILD_ID;     // ID твоего сервера
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
+
+if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
+  throw new Error('Не хватает TOKEN, CLIENT_ID или GUILD_ID в переменных окружения.');
+}
 
 const DATA_DIR = '/data';
 const DATA_FILE = `${DATA_DIR}/voice_times.json`;
+const CHECKPOINT_MS = 60 * 1000;
 
 const client = new Client({
   intents: [
@@ -18,37 +30,76 @@ const client = new Client({
 
 let voiceTimes = {};
 let activeSessions = new Map();
+let checkpointTimer = null;
+
+function ensureDataDir() {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+}
 
 function loadData() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (fs.existsSync(DATA_FILE)) {
-    try { voiceTimes = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
-    catch (e) { voiceTimes = {}; }
+  ensureDataDir();
+
+  if (!fs.existsSync(DATA_FILE)) {
+    voiceTimes = {};
+    return;
+  }
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+
+    if (raw && typeof raw === 'object' && raw.voiceTimes && typeof raw.voiceTimes === 'object') {
+      voiceTimes = raw.voiceTimes;
+    } else if (raw && typeof raw === 'object') {
+      voiceTimes = raw;
+    } else {
+      voiceTimes = {};
+    }
+  } catch {
+    voiceTimes = {};
   }
 }
 
 function saveData() {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(voiceTimes, null, 2));
+  ensureDataDir();
+  fs.writeFileSync(
+    DATA_FILE,
+    JSON.stringify(
+      {
+        voiceTimes,
+      },
+      null,
+      2
+    )
+  );
 }
 
-function getKey(guildId, userId) { 
-  return `${guildId}:${userId}`; 
+function getKey(guildId, userId) {
+  return `${guildId}:${userId}`;
 }
 
 function addTime(guildId, userId, seconds) {
-  if (seconds < 10) return;
+  if (seconds <= 0) return;
+
   const key = getKey(guildId, userId);
   voiceTimes[key] = (voiceTimes[key] || 0) + seconds;
   saveData();
 }
 
+function getSessionStart(key) {
+  return activeSessions.get(key) ?? null;
+}
+
+function getCurrentSessionSeconds(key) {
+  const startedAt = getSessionStart(key);
+  if (!startedAt) return 0;
+  return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+}
+
 function getTotalSeconds(guildId, userId) {
   const key = getKey(guildId, userId);
-  let total = voiceTimes[key] || 0;
-  if (activeSessions.has(key)) {
-    total += Math.floor((Date.now() - activeSessions.get(key)) / 1000);
-  }
-  return total;
+  return (voiceTimes[key] || 0) + getCurrentSessionSeconds(key);
 }
 
 function formatTime(seconds) {
@@ -56,77 +107,186 @@ function formatTime(seconds) {
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
-  return `${d ? d + 'д ' : ''}${h}ч ${m}м ${s}с`.trim();
+
+  const parts = [];
+  if (d) parts.push(`${d}д`);
+  if (h || d) parts.push(`${h}ч`);
+  if (m || h || d) parts.push(`${m}м`);
+  parts.push(`${s}с`);
+
+  return parts.join(' ');
 }
 
-// ====================== ЗАПУСК ======================
-client.once('ready', async () => {
-  console.log(`✅ Бот онлайн: ${client.user.tag}`);
-  loadData();
+function startSession(guildId, userId) {
+  const key = getKey(guildId, userId);
+  if (!activeSessions.has(key)) {
+    activeSessions.set(key, Date.now());
+  }
+}
 
-  // Регистрация команды /time (только на твоём сервере — появляется за 3-5 секунд)
+function endSession(guildId, userId) {
+  const key = getKey(guildId, userId);
+  const startedAt = activeSessions.get(key);
+
+  if (!startedAt) return;
+
+  const secs = Math.floor((Date.now() - startedAt) / 1000);
+  if (secs > 0) addTime(guildId, userId, secs);
+
+  activeSessions.delete(key);
+}
+
+function checkpointSessions(force = false) {
+  const now = Date.now();
+  let changed = false;
+
+  for (const [key, startedAt] of activeSessions.entries()) {
+    const elapsed = Math.floor((now - startedAt) / 1000);
+    if (elapsed <= 0) continue;
+
+    if (force || elapsed >= 60) {
+      voiceTimes[key] = (voiceTimes[key] || 0) + elapsed;
+      activeSessions.set(key, now);
+      changed = true;
+    }
+  }
+
+  if (changed) saveData();
+}
+
+async function restoreCurrentVoiceSessions() {
+  const guild = client.guilds.cache.get(GUILD_ID) || (await client.guilds.fetch(GUILD_ID).catch(() => null));
+  if (!guild) return;
+
+  for (const [userId, voiceState] of guild.voiceStates.cache) {
+    if (!voiceState.channelId) continue;
+    if (userId === client.user.id) continue;
+    startSession(GUILD_ID, userId);
+  }
+}
+
+async function registerCommands() {
   const commands = [
     new SlashCommandBuilder()
       .setName('time')
       .setDescription('Показать время, проведённое в голосовых каналах')
-      .addUserOption(option => 
-        option.setName('user')
+      .addUserOption((option) =>
+        option
+          .setName('user')
           .setDescription('Пользователь (если не указать — покажет твоё время)')
           .setRequired(false)
       )
       .toJSON(),
+
+    new SlashCommandBuilder()
+      .setName('ping')
+      .setDescription('Проверить отклик бота')
+      .toJSON(),
   ];
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
+
+  await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
+    body: commands,
+  });
+}
+
+client.once('ready', async () => {
+  console.log(`✅ Бот онлайн: ${client.user.tag}`);
+
+  loadData();
+
   try {
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-    console.log('✅ Команда /time успешно зарегистрирована на сервере');
+    await registerCommands();
+    console.log('✅ Slash-команды зарегистрированы');
   } catch (error) {
-    console.error('❌ Ошибка регистрации команды:', error);
+    console.error('❌ Ошибка регистрации команд:', error);
   }
+
+  await restoreCurrentVoiceSessions();
+
+  if (checkpointTimer) clearInterval(checkpointTimer);
+  checkpointTimer = setInterval(() => checkpointSessions(false), CHECKPOINT_MS);
+  checkpointTimer.unref?.();
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
-  const guildId = newState.guild.id;
-  const userId = newState.id;
-  const key = getKey(guildId, userId);
+  if (!newState.guild || newState.guild.id !== GUILD_ID) return;
+  if (newState.id === client.user.id) return;
 
-  if (!oldState.channelId && newState.channelId) {
-    activeSessions.set(key, Date.now());
-  } else if (oldState.channelId && !newState.channelId) {
-    const start = activeSessions.get(key);
-    if (start) {
-      const secs = Math.floor((Date.now() - start) / 1000);
-      addTime(guildId, userId, secs);
-      activeSessions.delete(key);
-    }
-  } else if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
-    const start = activeSessions.get(key);
-    if (start) addTime(guildId, userId, Math.floor((Date.now() - start) / 1000));
-    activeSessions.set(key, Date.now());
+  const oldChannelId = oldState.channelId;
+  const newChannelId = newState.channelId;
+
+  // Вошёл в войс
+  if (!oldChannelId && newChannelId) {
+    startSession(newState.guild.id, newState.id);
+    return;
+  }
+
+  // Вышел из войса
+  if (oldChannelId && !newChannelId) {
+    endSession(newState.guild.id, newState.id);
+    return;
+  }
+
+  // Перешёл в другой войс
+  if (oldChannelId && newChannelId && oldChannelId !== newChannelId) {
+    endSession(newState.guild.id, newState.id);
+    startSession(newState.guild.id, newState.id);
   }
 });
 
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand() || interaction.commandName !== 'time') return;
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'ping') {
+    await interaction.reply({
+      content: `🏓 Pong! \`${client.ws.ping}ms\``,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (interaction.commandName !== 'time') return;
 
   await interaction.deferReply();
 
   const target = interaction.options.getUser('user') || interaction.user;
   const total = getTotalSeconds(interaction.guild.id, target.id);
+  const currentSession = getCurrentSessionSeconds(getKey(interaction.guild.id, target.id));
   const member = await interaction.guild.members.fetch(target.id).catch(() => null);
   const name = member?.displayName || target.username;
 
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
-    .setAuthor({ name: name, iconURL: target.displayAvatarURL({ dynamic: true }) })
+    .setAuthor({ name, iconURL: target.displayAvatarURL({ size: 256 }) })
     .setTitle('⏱ Время в войсе')
-    .setDescription(`**${formatTime(total)}**`)
-    .setThumbnail(target.displayAvatarURL({ dynamic: true, size: 256 }))
+    .setDescription(
+      [
+        `**Всего:** ${formatTime(total)}`,
+        `**Сейчас в сессии:** ${formatTime(currentSession)}`,
+      ].join('\n')
+    )
+    .setThumbnail(target.displayAvatarURL({ size: 256 }))
     .setFooter({ text: `ID: ${target.id}` })
     .setTimestamp();
 
   await interaction.editReply({ embeds: [embed] });
 });
+
+async function shutdown(signal) {
+  try {
+    console.log(`Получен ${signal}, сохраняю данные...`);
+    checkpointSessions(true);
+    saveData();
+  } catch (error) {
+    console.error('Ошибка при сохранении перед выключением:', error);
+  } finally {
+    process.exit(0);
+  }
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 client.login(TOKEN);
