@@ -288,4 +288,13 @@ async function shutdown(signal) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+require('http')
+  .createServer((req, res) => {
+    res.writeHead(200);
+    res.end('Bot is alive');
+  })
+  .listen(3000, () => {
+    console.log('🌐 HTTP сервер запущен (анти-сон)');
+  });
+
 client.login(TOKEN);
