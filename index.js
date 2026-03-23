@@ -5,8 +5,10 @@ const {
   EmbedBuilder,
   REST,
   Routes,
+  MessageFlags,
 } = require('discord.js');
 const fs = require('fs');
+const http = require('http');
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -48,7 +50,6 @@ function loadData() {
 
   try {
     const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-
     if (raw && typeof raw === 'object' && raw.voiceTimes && typeof raw.voiceTimes === 'object') {
       voiceTimes = raw.voiceTimes;
     } else if (raw && typeof raw === 'object') {
@@ -56,7 +57,8 @@ function loadData() {
     } else {
       voiceTimes = {};
     }
-  } catch {
+  } catch (error) {
+    console.error('Не удалось прочитать файл данных, начинаю с пустой статистики:', error);
     voiceTimes = {};
   }
 }
@@ -87,12 +89,8 @@ function addTime(guildId, userId, seconds) {
   saveData();
 }
 
-function getSessionStart(key) {
-  return activeSessions.get(key) ?? null;
-}
-
 function getCurrentSessionSeconds(key) {
-  const startedAt = getSessionStart(key);
+  const startedAt = activeSessions.get(key);
   if (!startedAt) return 0;
   return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
 }
@@ -127,7 +125,6 @@ function startSession(guildId, userId) {
 function endSession(guildId, userId) {
   const key = getKey(guildId, userId);
   const startedAt = activeSessions.get(key);
-
   if (!startedAt) return;
 
   const secs = Math.floor((Date.now() - startedAt) / 1000);
@@ -157,6 +154,8 @@ function checkpointSessions(force = false) {
 async function restoreCurrentVoiceSessions() {
   const guild = client.guilds.cache.get(GUILD_ID) || (await client.guilds.fetch(GUILD_ID).catch(() => null));
   if (!guild) return;
+
+  activeSessions.clear();
 
   for (const [userId, voiceState] of guild.voiceStates.cache) {
     if (!voiceState.channelId) continue;
@@ -191,7 +190,7 @@ async function registerCommands() {
   });
 }
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
 
   loadData();
@@ -217,19 +216,16 @@ client.on('voiceStateUpdate', (oldState, newState) => {
   const oldChannelId = oldState.channelId;
   const newChannelId = newState.channelId;
 
-  // Вошёл в войс
   if (!oldChannelId && newChannelId) {
     startSession(newState.guild.id, newState.id);
     return;
   }
 
-  // Вышел из войса
   if (oldChannelId && !newChannelId) {
     endSession(newState.guild.id, newState.id);
     return;
   }
 
-  // Перешёл в другой войс
   if (oldChannelId && newChannelId && oldChannelId !== newChannelId) {
     endSession(newState.guild.id, newState.id);
     startSession(newState.guild.id, newState.id);
@@ -242,7 +238,7 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName === 'ping') {
     await interaction.reply({
       content: `🏓 Pong! \`${client.ws.ping}ms\``,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -253,7 +249,6 @@ client.on('interactionCreate', async (interaction) => {
 
   const target = interaction.options.getUser('user') || interaction.user;
   const total = getTotalSeconds(interaction.guild.id, target.id);
-  const currentSession = getCurrentSessionSeconds(getKey(interaction.guild.id, target.id));
   const member = await interaction.guild.members.fetch(target.id).catch(() => null);
   const name = member?.displayName || target.username;
 
@@ -261,11 +256,7 @@ client.on('interactionCreate', async (interaction) => {
     .setColor(0x5865F2)
     .setAuthor({ name, iconURL: target.displayAvatarURL({ size: 256 }) })
     .setTitle('⏱ Время в войсе')
-    .setDescription(
-      [
-        `**Всего:** ${formatTime(total)}`,
-      ].join('\n')
-    )
+    .setDescription(`**Всего:** ${formatTime(total)}`)
     .setThumbnail(target.displayAvatarURL({ size: 256 }))
     .setFooter({ text: `ID: ${target.id}` })
     .setTimestamp();
@@ -288,13 +279,11 @@ async function shutdown(signal) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-require('http')
-  .createServer((req, res) => {
-    res.writeHead(200);
-    res.end('Bot is alive');
-  })
-  .listen(3000, () => {
-    console.log('🌐 HTTP сервер запущен (анти-сон)');
-  });
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Bot is alive');
+}).listen(process.env.PORT || 3000, () => {
+  console.log('🌐 HTTP сервер запущен');
+});
 
 client.login(TOKEN);
