@@ -1,7 +1,9 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, EmbedBuilder, REST, Routes } = require('discord.js');
 const fs = require('fs');
 
 const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;   // Application ID из Discord Developer Portal
+const GUILD_ID = process.env.GUILD_ID;     // ID твоего сервера
 
 const DATA_DIR = '/data';
 const DATA_FILE = `${DATA_DIR}/voice_times.json`;
@@ -29,7 +31,9 @@ function saveData() {
   fs.writeFileSync(DATA_FILE, JSON.stringify(voiceTimes, null, 2));
 }
 
-function getKey(guildId, userId) { return `${guildId}:${userId}`; }
+function getKey(guildId, userId) { 
+  return `${guildId}:${userId}`; 
+}
 
 function addTime(guildId, userId, seconds) {
   if (seconds < 10) return;
@@ -55,9 +59,31 @@ function formatTime(seconds) {
   return `${d ? d + 'д ' : ''}${h}ч ${m}м ${s}с`.trim();
 }
 
-client.once('ready', () => {
+// ====================== ЗАПУСК ======================
+client.once('ready', async () => {
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
   loadData();
+
+  // Регистрация команды /time (только на твоём сервере — появляется за 3-5 секунд)
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('time')
+      .setDescription('Показать время, проведённое в голосовых каналах')
+      .addUserOption(option => 
+        option.setName('user')
+          .setDescription('Пользователь (если не указать — покажет твоё время)')
+          .setRequired(false)
+      )
+      .toJSON(),
+  ];
+
+  const rest = new REST({ version: '10' }).setToken(TOKEN);
+  try {
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+    console.log('✅ Команда /time успешно зарегистрирована на сервере');
+  } catch (error) {
+    console.error('❌ Ошибка регистрации команды:', error);
+  }
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
