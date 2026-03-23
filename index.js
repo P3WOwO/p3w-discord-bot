@@ -190,18 +190,7 @@ async function registerCommands() {
   });
 }
 
-client.user.setPresence({
-    status: 'dnd', // если хочешь зелёную точку
-    activities: [
-      {
-        name: 'Пение птиц',
-        type: 2, // Playing
-        timestamps: {
-          start: Date.now(),
-        },
-      },
-    ],
-  });
+client.once('clientReady', async () => {
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
 
   loadData();
@@ -214,6 +203,19 @@ client.user.setPresence({
   }
 
   await restoreCurrentVoiceSessions();
+
+  client.user.setPresence({
+    status: 'dnd',
+    activities: [
+      {
+        name: 'Пение птиц',
+        type: 2,
+        timestamps: {
+          start: Date.now(),
+        },
+      },
+    ],
+  });
 
   if (checkpointTimer) clearInterval(checkpointTimer);
   checkpointTimer = setInterval(() => checkpointSessions(false), CHECKPOINT_MS);
