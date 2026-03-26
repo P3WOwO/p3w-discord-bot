@@ -21,11 +21,13 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
 }
 
 const DATA_DIR = '/data';
-const DATA_FILE = `${DATA_DIR}/voice_times.json`;
-const PRESENCE_FILE = `${DATA_DIR}/presence.json`;
+const VOICE_DATA_FILE = `${DATA_DIR}/voice_times.json`;
+const LIFE_DATA_FILE = `${DATA_DIR}/life_state.json`;
+
 const CHECKPOINT_MS = 60 * 1000;
-const TOP_LIMIT = 7;
+const PRESENCE_REFRESH_MS = 60 * 1000;
 const PRESENCE_ROTATE_MS = 60 * 60 * 1000;
+const TOP_LIMIT = 7;
 
 const client = new Client({
   intents: [
@@ -38,14 +40,15 @@ const client = new Client({
 let voiceTimes = {};
 let activeSessions = new Map();
 let checkpointTimer = null;
-let presenceTimer = null;
+let presenceRefreshTimer = null;
+let presenceRotateTimer = null;
 
-let presenceState = {
+let lifeState = {
   startedAt: null,
-  name: null,
+  phrase: null,
 };
 
-const PRESENCE_PART_1 = [
+const PRESENCE_WORD_1 = [
   'Пение',
   'Журчание',
   'Шорох',
@@ -62,13 +65,23 @@ const PRESENCE_PART_1 = [
   'Писк',
   'Шепот',
   'Грохот',
-  'Дыхание',
   'Потрескивание',
   'Скрежет',
   'Пых',
+  'Хлюпанье',
+  'Кряканье',
+  'Чавканье',
+  'Ржание',
+  'Бряцание',
+  'Шлепок',
+  'Рёв',
+  'Мурчание',
+  'Бурчание',
+  'Стук',
+  'Тиканье',
 ];
 
-const PRESENCE_PART_2 = [
+const PRESENCE_WORD_2 = [
   'птиц',
   'креветок',
   'табуреток',
@@ -84,7 +97,7 @@ const PRESENCE_PART_2 = [
   'диванов',
   'проводов',
   'пельменей',
-  'носок',
+  'носков',
   'тарелок',
   'клавиатур',
   'мониторов',
@@ -97,6 +110,8 @@ const PRESENCE_PART_2 = [
   'пауков',
   'мышек',
   'арбузов',
+  'стульев',
+  'пружин',
 ];
 
 function ensureDataDir() {
@@ -105,16 +120,16 @@ function ensureDataDir() {
   }
 }
 
-function loadData() {
+function loadVoiceData() {
   ensureDataDir();
 
-  if (!fs.existsSync(DATA_FILE)) {
+  if (!fs.existsSync(VOICE_DATA_FILE)) {
     voiceTimes = {};
     return;
   }
 
   try {
-    const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    const raw = JSON.parse(fs.readFileSync(VOICE_DATA_FILE, 'utf8'));
     if (raw && typeof raw === 'object' && raw.voiceTimes && typeof raw.voiceTimes === 'object') {
       voiceTimes = raw.voiceTimes;
     } else if (raw && typeof raw === 'object') {
@@ -123,59 +138,53 @@ function loadData() {
       voiceTimes = {};
     }
   } catch (error) {
-    console.error('Не удалось прочитать файл данных, начинаю с пустой статистики:', error);
+    console.error('Не удалось прочитать voice_times.json, начинаю с пустой статистики:', error);
     voiceTimes = {};
   }
 }
 
-function saveData() {
+function saveVoiceData() {
   ensureDataDir();
   fs.writeFileSync(
-    DATA_FILE,
-    JSON.stringify(
-      {
-        voiceTimes,
-      },
-      null,
-      2
-    )
+    VOICE_DATA_FILE,
+    JSON.stringify({ voiceTimes }, null, 2)
   );
 }
 
-function loadPresenceState() {
+function loadLifeData() {
   ensureDataDir();
 
-  if (!fs.existsSync(PRESENCE_FILE)) {
-    presenceState = {
+  if (!fs.existsSync(LIFE_DATA_FILE)) {
+    lifeState = {
       startedAt: null,
-      name: null,
+      phrase: null,
     };
     return;
   }
 
   try {
-    const raw = JSON.parse(fs.readFileSync(PRESENCE_FILE, 'utf8'));
-    presenceState = {
+    const raw = JSON.parse(fs.readFileSync(LIFE_DATA_FILE, 'utf8'));
+    lifeState = {
       startedAt: typeof raw?.startedAt === 'number' ? raw.startedAt : null,
-      name: typeof raw?.name === 'string' ? raw.name : null,
+      phrase: typeof raw?.phrase === 'string' ? raw.phrase : null,
     };
   } catch (error) {
-    console.error('Не удалось прочитать файл presence.json, создаю новый:', error);
-    presenceState = {
+    console.error('Не удалось прочитать life_state.json, создаю новый:', error);
+    lifeState = {
       startedAt: null,
-      name: null,
+      phrase: null,
     };
   }
 }
 
-function savePresenceState() {
+function saveLifeData() {
   ensureDataDir();
   fs.writeFileSync(
-    PRESENCE_FILE,
+    LIFE_DATA_FILE,
     JSON.stringify(
       {
-        startedAt: presenceState.startedAt,
-        name: presenceState.name,
+        startedAt: lifeState.startedAt,
+        phrase: lifeState.phrase,
       },
       null,
       2
@@ -192,7 +201,7 @@ function addTime(guildId, userId, seconds) {
 
   const key = getKey(guildId, userId);
   voiceTimes[key] = (voiceTimes[key] || 0) + seconds;
-  saveData();
+  saveVoiceData();
 }
 
 function getCurrentSessionSeconds(key) {
@@ -217,6 +226,19 @@ function formatTime(seconds) {
   if (h || d) parts.push(`${h}ч`);
   if (m || h || d) parts.push(`${m}м`);
   parts.push(`${s}с`);
+
+  return parts.join(' ');
+}
+
+function formatShortTime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+
+  const parts = [];
+  if (d) parts.push(`${d}д`);
+  if (h || d) parts.push(`${h}ч`);
+  parts.push(`${m}м`);
 
   return parts.join(' ');
 }
@@ -254,7 +276,7 @@ function checkpointSessions(force = false) {
     }
   }
 
-  if (changed) saveData();
+  if (changed) saveVoiceData();
 }
 
 async function restoreCurrentVoiceSessions() {
@@ -270,44 +292,62 @@ async function restoreCurrentVoiceSessions() {
   }
 }
 
-function pickRandomPresenceName() {
-  const a = PRESENCE_PART_1[Math.floor(Math.random() * PRESENCE_PART_1.length)];
-  const b = PRESENCE_PART_2[Math.floor(Math.random() * PRESENCE_PART_2.length)];
+function getRandomPresencePhrase() {
+  const a = PRESENCE_WORD_1[Math.floor(Math.random() * PRESENCE_WORD_1.length)];
+  const b = PRESENCE_WORD_2[Math.floor(Math.random() * PRESENCE_WORD_2.length)];
   return `${a} ${b}`;
 }
 
-function ensurePresenceState() {
-  if (!presenceState.startedAt) {
-    presenceState.startedAt = Date.now();
+function ensureLifeState() {
+  if (!lifeState.startedAt) {
+    lifeState.startedAt = Date.now();
   }
-  if (!presenceState.name) {
-    presenceState.name = pickRandomPresenceName();
+  if (!lifeState.phrase) {
+    lifeState.phrase = getRandomPresencePhrase();
   }
-  savePresenceState();
+  saveLifeData();
+}
+
+function buildLifeSeconds() {
+  if (!lifeState.startedAt) return 0;
+  return Math.max(0, Math.floor((Date.now() - lifeState.startedAt) / 1000));
+}
+
+function buildPresenceActivity() {
+  ensureLifeState();
+  const lifeSeconds = buildLifeSeconds();
+
+  return {
+    name: `Слушает ${lifeState.phrase} • живёт ${formatShortTime(lifeSeconds)}`,
+    type: ActivityType.Listening,
+    timestamps: {
+      start: lifeState.startedAt,
+    },
+  };
 }
 
 async function applyPresence() {
-  ensurePresenceState();
+  if (!client.user) return;
 
   client.user.setPresence({
     status: 'online',
-    activities: [
-      {
-        name: presenceState.name,
-        type: ActivityType.Listening,
-        timestamps: {
-          start: presenceState.startedAt,
-        },
-      },
-    ],
+    activities: [buildPresenceActivity()],
   });
 }
 
-async function rotatePresence() {
-  ensurePresenceState();
-  presenceState.name = pickRandomPresenceName();
-  savePresenceState();
-  await applyPresence();
+async function refreshPresence() {
+  try {
+    await applyPresence();
+  } catch (error) {
+    console.error('Ошибка обновления presence:', error);
+  }
+}
+
+async function rotatePresencePhrase() {
+  ensureLifeState();
+  lifeState.phrase = getRandomPresencePhrase();
+  saveLifeData();
+  await refreshPresence();
 }
 
 async function registerCommands() {
@@ -332,6 +372,11 @@ async function registerCommands() {
           .setDescription('Пользователь, которого тоже надо показать внизу, если он не в топе')
           .setRequired(false)
       )
+      .toJSON(),
+
+    new SlashCommandBuilder()
+      .setName('life')
+      .setDescription('Показать, сколько живёт бот')
       .toJSON(),
 
     new SlashCommandBuilder()
@@ -391,6 +436,7 @@ async function buildTopEmbed(guild, targetUser) {
   const targetTotal = getTotalSeconds(guild.id, targetUser.id);
 
   let description = '';
+
   if (leaderboard.length === 0) {
     description = 'Пока никто не провёл время в войсе.';
   } else {
@@ -421,20 +467,11 @@ async function buildTopEmbed(guild, targetUser) {
 
   if (targetRank !== null) {
     const targetName = await getMemberName(guild, targetUser.id);
-
-    if (targetRank > TOP_LIMIT) {
-      embed.addFields({
-        name: 'Твоё место',
-        value: `**#${targetRank}** — **${targetName}**\n**Время:** ${formatTime(targetTotal)}`,
-        inline: false,
-      });
-    } else {
-      embed.addFields({
-        name: 'Твоё место',
-        value: `**#${targetRank}** — **${targetName}**\n**Время:** ${formatTime(targetTotal)}`,
-        inline: false,
-      });
-    }
+    embed.addFields({
+      name: 'Твоё место',
+      value: `**#${targetRank}** — **${targetName}**\n**Время:** ${formatTime(targetTotal)}`,
+      inline: false,
+    });
   } else {
     embed.addFields({
       name: 'Твоё место',
@@ -446,11 +483,34 @@ async function buildTopEmbed(guild, targetUser) {
   return embed;
 }
 
+function buildLifeEmbed(botUser) {
+  ensureLifeState();
+  const lifeSeconds = buildLifeSeconds();
+  const phrase = lifeState.phrase || 'Пение птиц';
+
+  return new EmbedBuilder()
+    .setColor(0x57f287)
+    .setAuthor({
+      name: botUser?.tag || 'Бот',
+      iconURL: botUser?.displayAvatarURL?.({ size: 256 }),
+    })
+    .setTitle('💚 Бот живёт')
+    .setDescription(`**Бот живёт уже:** **${formatTime(lifeSeconds)}**`)
+    .addFields(
+      { name: 'Статус', value: `Слушает **${phrase}**`, inline: true },
+      { name: 'Таймер', value: `<t:${Math.floor(lifeState.startedAt / 1000)}:R>`, inline: true },
+      { name: 'Полная дата старта', value: `<t:${Math.floor(lifeState.startedAt / 1000)}:F>`, inline: false },
+      { name: 'Текущий текст статуса', value: `\`Слушает ${phrase} • живёт ${formatShortTime(lifeSeconds)}\``, inline: false }
+    )
+    .setFooter({ text: 'Сохраняется в /data' })
+    .setTimestamp();
+}
+
 client.once('ready', async () => {
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
 
-  loadData();
-  loadPresenceState();
+  loadVoiceData();
+  loadLifeData();
 
   try {
     await registerCommands();
@@ -460,21 +520,29 @@ client.once('ready', async () => {
   }
 
   await restoreCurrentVoiceSessions();
-  await applyPresence();
+  await refreshPresence();
 
   if (checkpointTimer) clearInterval(checkpointTimer);
   checkpointTimer = setInterval(() => checkpointSessions(false), CHECKPOINT_MS);
   checkpointTimer.unref?.();
 
-  if (presenceTimer) clearInterval(presenceTimer);
-  presenceTimer = setInterval(() => {
-    rotatePresence().catch((error) => {
-      console.error('Ошибка при смене presence:', error);
+  if (presenceRefreshTimer) clearInterval(presenceRefreshTimer);
+  presenceRefreshTimer = setInterval(() => {
+    refreshPresence().catch((error) => {
+      console.error('Ошибка обновления presence:', error);
+    });
+  }, PRESENCE_REFRESH_MS);
+  presenceRefreshTimer.unref?.();
+
+  if (presenceRotateTimer) clearInterval(presenceRotateTimer);
+  presenceRotateTimer = setInterval(() => {
+    rotatePresencePhrase().catch((error) => {
+      console.error('Ошибка смены мемной фразы:', error);
     });
   }, PRESENCE_ROTATE_MS);
-  presenceTimer.unref?.();
+  presenceRotateTimer.unref?.();
 
-  console.log(`🌿 Статус запущен: "Слушает ${presenceState.name}"`);
+  console.log(`🌿 Статус запущен: "Слушает ${lifeState.phrase}"`);
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
@@ -541,14 +609,22 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.editReply({ embeds: [embed] });
     return;
   }
+
+  if (interaction.commandName === 'life') {
+    await interaction.deferReply();
+
+    const embed = buildLifeEmbed(client.user);
+    await interaction.editReply({ embeds: [embed] });
+    return;
+  }
 });
 
 async function shutdown(signal) {
   try {
     console.log(`Получен ${signal}, сохраняю данные...`);
     checkpointSessions(true);
-    saveData();
-    savePresenceState();
+    saveVoiceData();
+    saveLifeData();
   } catch (error) {
     console.error('Ошибка при сохранении перед выключением:', error);
   } finally {
