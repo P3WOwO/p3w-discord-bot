@@ -8,6 +8,7 @@ const {
   MessageFlags,
   ActivityType,
 } = require('discord.js');
+
 const fs = require('fs');
 const http = require('http');
 
@@ -21,8 +22,10 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
 
 const DATA_DIR = '/data';
 const DATA_FILE = `${DATA_DIR}/voice_times.json`;
+const PRESENCE_FILE = `${DATA_DIR}/presence.json`;
 const CHECKPOINT_MS = 60 * 1000;
 const TOP_LIMIT = 7;
+const PRESENCE_ROTATE_MS = 60 * 60 * 1000;
 
 const client = new Client({
   intents: [
@@ -35,6 +38,66 @@ const client = new Client({
 let voiceTimes = {};
 let activeSessions = new Map();
 let checkpointTimer = null;
+let presenceTimer = null;
+
+let presenceState = {
+  startedAt: null,
+  name: null,
+};
+
+const PRESENCE_PART_1 = [
+  'Пение',
+  'Журчание',
+  'Шорох',
+  'Треск',
+  'Гул',
+  'Скрип',
+  'Лязг',
+  'Пыхтение',
+  'Бульканье',
+  'Хруст',
+  'Топот',
+  'Свист',
+  'Бормотание',
+  'Писк',
+  'Шепот',
+  'Грохот',
+  'Дыхание',
+  'Потрескивание',
+  'Скрежет',
+  'Пых',
+];
+
+const PRESENCE_PART_2 = [
+  'птиц',
+  'креветок',
+  'табуреток',
+  'пиццы',
+  'ламп',
+  'обоев',
+  'ботинок',
+  'пылесоса',
+  'чайника',
+  'дверей',
+  'кошек',
+  'кактусов',
+  'диванов',
+  'проводов',
+  'пельменей',
+  'носок',
+  'тарелок',
+  'клавиатур',
+  'мониторов',
+  'бананов',
+  'швабр',
+  'облаков',
+  'скрепок',
+  'проводков',
+  'сосисок',
+  'пауков',
+  'мышек',
+  'арбузов',
+];
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -72,6 +135,47 @@ function saveData() {
     JSON.stringify(
       {
         voiceTimes,
+      },
+      null,
+      2
+    )
+  );
+}
+
+function loadPresenceState() {
+  ensureDataDir();
+
+  if (!fs.existsSync(PRESENCE_FILE)) {
+    presenceState = {
+      startedAt: null,
+      name: null,
+    };
+    return;
+  }
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(PRESENCE_FILE, 'utf8'));
+    presenceState = {
+      startedAt: typeof raw?.startedAt === 'number' ? raw.startedAt : null,
+      name: typeof raw?.name === 'string' ? raw.name : null,
+    };
+  } catch (error) {
+    console.error('Не удалось прочитать файл presence.json, создаю новый:', error);
+    presenceState = {
+      startedAt: null,
+      name: null,
+    };
+  }
+}
+
+function savePresenceState() {
+  ensureDataDir();
+  fs.writeFileSync(
+    PRESENCE_FILE,
+    JSON.stringify(
+      {
+        startedAt: presenceState.startedAt,
+        name: presenceState.name,
       },
       null,
       2
@@ -166,6 +270,46 @@ async function restoreCurrentVoiceSessions() {
   }
 }
 
+function pickRandomPresenceName() {
+  const a = PRESENCE_PART_1[Math.floor(Math.random() * PRESENCE_PART_1.length)];
+  const b = PRESENCE_PART_2[Math.floor(Math.random() * PRESENCE_PART_2.length)];
+  return `${a} ${b}`;
+}
+
+function ensurePresenceState() {
+  if (!presenceState.startedAt) {
+    presenceState.startedAt = Date.now();
+  }
+  if (!presenceState.name) {
+    presenceState.name = pickRandomPresenceName();
+  }
+  savePresenceState();
+}
+
+async function applyPresence() {
+  ensurePresenceState();
+
+  client.user.setPresence({
+    status: 'online',
+    activities: [
+      {
+        name: presenceState.name,
+        type: ActivityType.Listening,
+        timestamps: {
+          start: presenceState.startedAt,
+        },
+      },
+    ],
+  });
+}
+
+async function rotatePresence() {
+  ensurePresenceState();
+  presenceState.name = pickRandomPresenceName();
+  savePresenceState();
+  await applyPresence();
+}
+
 async function registerCommands() {
   const commands = [
     new SlashCommandBuilder()
@@ -250,20 +394,18 @@ async function buildTopEmbed(guild, targetUser) {
   if (leaderboard.length === 0) {
     description = 'Пока никто не провёл время в войсе.';
   } else {
-    const nameWidth = 24;
-
     const rows = [];
     rows.push('```');
-    rows.push(`#  ${'Пользователь'.padEnd(nameWidth)}  Время`);
+    rows.push(`#  Пользователь                 Время`);
     rows.push('-----------------------------------------------');
 
     for (let i = 0; i < top.length; i++) {
       const item = top[i];
       const name = await getMemberName(guild, item.userId);
-      const shortName = name.length > nameWidth ? name.slice(0, nameWidth - 1) + '…' : name;
+      const shortName = name.length > 26 ? name.slice(0, 25) + '…' : name;
       const rank = String(i + 1).padEnd(2, ' ');
       const time = formatTime(item.seconds);
-      rows.push(`${rank} ${shortName.padEnd(nameWidth)}  ${time}`);
+      rows.push(`${rank} ${shortName.padEnd(28)} ${time}`);
     }
 
     rows.push('```');
@@ -277,20 +419,22 @@ async function buildTopEmbed(guild, targetUser) {
     .setFooter({ text: `Всего людей в таблице: ${leaderboard.length}` })
     .setTimestamp();
 
-  if (targetRank !== null && targetRank > TOP_LIMIT) {
+  if (targetRank !== null) {
     const targetName = await getMemberName(guild, targetUser.id);
-    embed.addFields({
-      name: 'Твоё место',
-      value: `**#${targetRank}** — **${targetName}**\n**Время:** ${formatTime(targetTotal)}`,
-      inline: false,
-    });
-  } else if (targetRank !== null) {
-    const targetName = await getMemberName(guild, targetUser.id);
-    embed.addFields({
-      name: 'Твоё место',
-      value: `**#${targetRank}** — **${targetName}**\n**Время:** ${formatTime(targetTotal)}`,
-      inline: false,
-    });
+
+    if (targetRank > TOP_LIMIT) {
+      embed.addFields({
+        name: 'Твоё место',
+        value: `**#${targetRank}** — **${targetName}**\n**Время:** ${formatTime(targetTotal)}`,
+        inline: false,
+      });
+    } else {
+      embed.addFields({
+        name: 'Твоё место',
+        value: `**#${targetRank}** — **${targetName}**\n**Время:** ${formatTime(targetTotal)}`,
+        inline: false,
+      });
+    }
   } else {
     embed.addFields({
       name: 'Твоё место',
@@ -306,6 +450,7 @@ client.once('ready', async () => {
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
 
   loadData();
+  loadPresenceState();
 
   try {
     await registerCommands();
@@ -315,23 +460,21 @@ client.once('ready', async () => {
   }
 
   await restoreCurrentVoiceSessions();
-
-  client.user.setPresence({
-    status: 'online',
-    activities: [
-      {
-        name: 'Пение птиц',
-        type: ActivityType.Listening,
-        timestamps: {
-          start: Date.now(),
-        },
-      },
-    ],
-  });
+  await applyPresence();
 
   if (checkpointTimer) clearInterval(checkpointTimer);
   checkpointTimer = setInterval(() => checkpointSessions(false), CHECKPOINT_MS);
   checkpointTimer.unref?.();
+
+  if (presenceTimer) clearInterval(presenceTimer);
+  presenceTimer = setInterval(() => {
+    rotatePresence().catch((error) => {
+      console.error('Ошибка при смене presence:', error);
+    });
+  }, PRESENCE_ROTATE_MS);
+  presenceTimer.unref?.();
+
+  console.log(`🌿 Статус запущен: "Слушает ${presenceState.name}"`);
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
@@ -405,6 +548,7 @@ async function shutdown(signal) {
     console.log(`Получен ${signal}, сохраняю данные...`);
     checkpointSessions(true);
     saveData();
+    savePresenceState();
   } catch (error) {
     console.error('Ошибка при сохранении перед выключением:', error);
   } finally {
