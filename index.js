@@ -497,12 +497,7 @@ function buildLifeEmbed(botUser) {
     .setTitle('💚 Бот живёт')
     .setDescription(`**Бот живёт уже:** **${formatTime(lifeSeconds)}**`)
     .addFields(
-      { name: 'Статус', value: `Слушает **${phrase}**`, inline: true },
-      { name: 'Таймер', value: `<t:${Math.floor(lifeState.startedAt / 1000)}:R>`, inline: true },
-      { name: 'Полная дата старта', value: `<t:${Math.floor(lifeState.startedAt / 1000)}:F>`, inline: false },
-      { name: 'Текущий текст статуса', value: `\`Слушает ${phrase} • живёт ${formatShortTime(lifeSeconds)}\``, inline: false }
-    )
-    .setFooter({ text: 'Сохраняется в /data' })
+      { name: 'Статус', value: `Слушает **${phrase}**`, inline: true }
     .setTimestamp();
 }
 
