@@ -327,7 +327,7 @@ async function applyPresence() {
   if (!client.user) return;
 
   client.user.setPresence({
-    status: 'online',
+    status: 'dnd',
     activities: [buildPresenceActivity()],
   });
 }
@@ -612,7 +612,7 @@ async function shutdown(signal) {
     saveLifeData();
   } catch (error) {
     console.error('Ошибка при сохранении перед выключением:', error);
-  } finally {
+  } finally {            
     process.exit(0);
   }
 }
