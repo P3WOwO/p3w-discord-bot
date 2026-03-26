@@ -145,10 +145,7 @@ function loadVoiceData() {
 
 function saveVoiceData() {
   ensureDataDir();
-  fs.writeFileSync(
-    VOICE_DATA_FILE,
-    JSON.stringify({ voiceTimes }, null, 2)
-  );
+  fs.writeFileSync(VOICE_DATA_FILE, JSON.stringify({ voiceTimes }, null, 2));
 }
 
 function loadLifeData() {
@@ -318,7 +315,7 @@ function buildPresenceActivity() {
   const lifeSeconds = buildLifeSeconds();
 
   return {
-    name: `Слушает ${lifeState.phrase} • живёт ${formatShortTime(lifeSeconds)}`,
+    name: `Слушает ${lifeState.phrase} • ${formatShortTime(lifeSeconds)}`,
     type: ActivityType.Listening,
     timestamps: {
       start: lifeState.startedAt,
@@ -483,21 +480,14 @@ async function buildTopEmbed(guild, targetUser) {
   return embed;
 }
 
-function buildLifeEmbed(botUser) {
+function buildLifeEmbed() {
   ensureLifeState();
   const lifeSeconds = buildLifeSeconds();
-  const phrase = lifeState.phrase || 'Пение птиц';
 
   return new EmbedBuilder()
     .setColor(0x57f287)
-    .setAuthor({
-      name: botUser?.tag || 'Бот',
-      iconURL: botUser?.displayAvatarURL?.({ size: 256 }),
-    })
-    .setTitle('💚 Бот живёт')
-    .setDescription(`**Бот живёт уже:** **${formatTime(lifeSeconds)}**`)
-    .addFields(
-      { name: 'Статус', value: `Слушает **${phrase}**`, inline: true }
+    .setTitle('💚 /life')
+    .setDescription(`**${formatTime(lifeSeconds)}**`)
     .setTimestamp();
 }
 
@@ -608,7 +598,7 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName === 'life') {
     await interaction.deferReply();
 
-    const embed = buildLifeEmbed(client.user);
+    const embed = buildLifeEmbed();
     await interaction.editReply({ embeds: [embed] });
     return;
   }
