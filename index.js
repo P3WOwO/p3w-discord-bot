@@ -5,7 +5,6 @@ const {
   EmbedBuilder,
   REST,
   Routes,
-  MessageFlags,
   ActivityType,
 } = require('discord.js');
 
@@ -48,41 +47,54 @@ let lifeState = {
   phrase: null,
 };
 
-const PRESENCE_WORD_1 = [
-  'Пение',
-  'Журчание',
-  'Шорох',
-  'Треск',
-  'Гул',
-  'Скрип',
-  'Лязг',
-  'Пыхтение',
-  'Бульканье',
-  'Хруст',
-  'Топот',
-  'Свист',
-  'Бормотание',
-  'Писк',
-  'Шепот',
-  'Грохот',
-  'Потрескивание',
-  'Скрежет',
-  'Пых',
-  'Хлюпанье',
-  'Кряканье',
-  'Чавканье',
-  'Ржание',
-  'Бряцание',
-  'Шлепок',
-  'Рёв',
-  'Мурчание',
-  'Бурчание',
-  'Стук',
-  'Тиканье',
+const PRESENCE_VERBS = [
+  'Компиляцию',
+  'Сборку',
+  'Обработку',
+  'Дифракцию',
+  'Извержение',
+  'Ущемление',
+  'Почернение',
+  'Проверку',
+  'Перезагрузку',
+  'Калибровку',
+  'Мемификацию',
+  'Рендеринг',
+  'Оптимизацию',
+  'Патчинг',
+  'Загрузку',
+  'Разборку',
+  'Синхронизацию',
+  'Фильтрацию',
+  'Декодирование',
+  'Свертку',
+  'Печать',
+  'Замес',
+  'Шейдинг',
+  'Лутинг',
+  'Фарминг',
+  'Переупаковку',
+  'Тюнинг',
+  'Бустинг',
+  'Троттлинг',
+  'Стабилизацию',
 ];
 
-const PRESENCE_WORD_2 = [
-  'птиц',
+const PRESENCE_NOUNS = [
+  'яиц',
+  'костей',
+  'коммунизма',
+  'света',
+  'вулкана',
+  'уретры',
+  'игоря',
+  'мемов',
+  'вайба',
+  'кринжа',
+  'пикселей',
+  'нулей',
+  'таблеток',
+  'пельменей',
   'креветок',
   'табуреток',
   'пиццы',
@@ -96,7 +108,6 @@ const PRESENCE_WORD_2 = [
   'кактусов',
   'диванов',
   'проводов',
-  'пельменей',
   'носков',
   'тарелок',
   'клавиатур',
@@ -112,6 +123,16 @@ const PRESENCE_WORD_2 = [
   'арбузов',
   'стульев',
   'пружин',
+  'гигабайтов',
+  'лагов',
+  'фпсов',
+  'битов',
+  'нейронок',
+  'негра',
+  'уретры',
+  'евреев',
+  'Azi',
+  'Никнэйма',
 ];
 
 function ensureDataDir() {
@@ -240,6 +261,14 @@ function formatShortTime(seconds) {
   return parts.join(' ');
 }
 
+function formatTopTime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+
+  if (d > 0) return `${d}д ${h}ч`;
+  return `${h}ч`;
+}
+
 function startSession(guildId, userId) {
   const key = getKey(guildId, userId);
   if (!activeSessions.has(key)) {
@@ -289,9 +318,13 @@ async function restoreCurrentVoiceSessions() {
   }
 }
 
+function pickRandom(array) {
+  return array[Math.floor(Math.random() * array.length)];
+}
+
 function getRandomPresencePhrase() {
-  const a = PRESENCE_WORD_1[Math.floor(Math.random() * PRESENCE_WORD_1.length)];
-  const b = PRESENCE_WORD_2[Math.floor(Math.random() * PRESENCE_WORD_2.length)];
+  const a = pickRandom(PRESENCE_VERBS);
+  const b = pickRandom(PRESENCE_NOUNS);
   return `${a} ${b}`;
 }
 
@@ -439,7 +472,7 @@ async function buildTopEmbed(guild, targetUser) {
   } else {
     const rows = [];
     rows.push('```');
-    rows.push(`#  Пользователь                 Время`);
+    rows.push(`#  Пользователь                 Дни/часы`);
     rows.push('-----------------------------------------------');
 
     for (let i = 0; i < top.length; i++) {
@@ -447,7 +480,7 @@ async function buildTopEmbed(guild, targetUser) {
       const name = await getMemberName(guild, item.userId);
       const shortName = name.length > 26 ? name.slice(0, 25) + '…' : name;
       const rank = String(i + 1).padEnd(2, ' ');
-      const time = formatTime(item.seconds);
+      const time = formatTopTime(item.seconds);
       rows.push(`${rank} ${shortName.padEnd(28)} ${time}`);
     }
 
@@ -466,7 +499,7 @@ async function buildTopEmbed(guild, targetUser) {
     const targetName = await getMemberName(guild, targetUser.id);
     embed.addFields({
       name: 'Твоё место',
-      value: `**#${targetRank}** — **${targetName}**\n**Время:** ${formatTime(targetTotal)}`,
+      value: `**#${targetRank}** — **${targetName}**\n**Время:** ${formatTopTime(targetTotal)}`,
       inline: false,
     });
   } else {
@@ -612,7 +645,7 @@ async function shutdown(signal) {
     saveLifeData();
   } catch (error) {
     console.error('Ошибка при сохранении перед выключением:', error);
-  } finally {            
+  } finally {
     process.exit(0);
   }
 }
