@@ -473,7 +473,7 @@ async function buildTopEmbed(guild, targetUser) {
     const rows = [];
     rows.push('```');
     rows.push(`#  Пользователь             Дни/часы`);
-    rows.push('------------------------------------');
+    rows.push('-----------------------------------------');
 
     for (let i = 0; i < top.length; i++) {
       const item = top[i];
