@@ -559,7 +559,7 @@ function buildLifeEmbed() {
     .setTitle('💚 /life')
     .setDescription(
       `**${formatTime(lifeSeconds)}**\n\n` +
-      `я здохну через: <t:${targetUnix}:R>`
+      `я здохну: <t:${targetUnix}:R>`
     )
     .setTimestamp();
 }
