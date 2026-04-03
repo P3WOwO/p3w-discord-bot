@@ -6,7 +6,10 @@ const {
   REST,
   Routes,
   ActivityType,
+  ChannelType,
 } = require('discord.js');
+
+const LIFE_TARGET_DAY = 23;
 
 const fs = require('fs');
 const http = require('http');
@@ -134,6 +137,22 @@ const PRESENCE_NOUNS = [
   'Azi',
   'Никнэйма',
 ];
+
+function getNextTargetDayUnix(dayOfMonth = 23) {
+  const now = new Date();
+
+  const target = new Date(now);
+  target.setHours(0, 0, 0, 0);
+  target.setDate(dayOfMonth);
+
+  if (target <= now) {
+    target.setMonth(target.getMonth() + 1);
+    target.setDate(dayOfMonth);
+    target.setHours(0, 0, 0, 0);
+  }
+
+  return Math.floor(target.getTime() / 1000);
+}
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -413,6 +432,23 @@ async function registerCommands() {
       .setName('ping')
       .setDescription('Проверить отклик бота')
       .toJSON(),
+    new SlashCommandBuilder()
+      .setName('msg')
+      .setDescription('Отправить сообщение от имени бота в выбранный канал')
+      .addChannelOption((option) =>
+        option
+          .setName('channel')
+          .setDescription('Канал, куда отправить сообщение')
+          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+          .setRequired(true)
+      )
+      .addStringOption((option) =>
+        option
+          .setName('message')
+          .setDescription('Текст сообщения')
+          .setRequired(true)
+      )
+      .toJSON(),
   ];
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -516,14 +552,17 @@ async function buildTopEmbed(guild, targetUser) {
 function buildLifeEmbed() {
   ensureLifeState();
   const lifeSeconds = buildLifeSeconds();
+  const targetUnix = getNextTargetDayUnix(LIFE_TARGET_DAY);
 
   return new EmbedBuilder()
     .setColor(0x57f287)
     .setTitle('💚 /life')
-    .setDescription(`**${formatTime(lifeSeconds)}**`)
+    .setDescription(
+      `**${formatTime(lifeSeconds)}**\n\n` +
+      `До ${LIFE_TARGET_DAY} числа осталось: <t:${targetUnix}:R>`
+    )
     .setTimestamp();
 }
-
 client.once('ready', async () => {
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
 
@@ -594,6 +633,27 @@ client.on('interactionCreate', async (interaction) => {
       content: `🏓 Pong! \`${client.ws.ping}ms\``,
       ephemeral: true,
     });
+    return;
+  }
+    if (interaction.commandName === 'msg') {
+    await interaction.deferReply({ ephemeral: true });
+
+    const channel = interaction.options.getChannel('channel', true);
+    const message = interaction.options.getString('message', true);
+
+    if (!channel.isTextBased()) {
+      await interaction.editReply({ content: '❌ Это не текстовый канал.' });
+      return;
+    }
+
+    try {
+      await channel.send({ content: message });
+      await interaction.editReply({ content: `✅ Сообщение отправлено в ${channel}.` });
+    } catch (error) {
+      console.error('Ошибка отправки сообщения:', error);
+      await interaction.editReply({ content: '❌ Не удалось отправить сообщение.' });
+    }
+
     return;
   }
 
