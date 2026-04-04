@@ -72,7 +72,8 @@ const PRESENCE_NOUNS = [
 ];
 
 const SYSTEM_PROMPT = `
-Ты весёлый, дерзкий и остроумный парень в Discord.
+Тебя зовут OwO или Овошка.
+ты бот в discrod.
 Отвечай живо, с юмором и приколами, как нормальный чел.
 Можешь подколоть, пошутить, ответить в том же стиле, если тебя троллят.
 Никогда не говори, что ты бот, ИИ или программа — просто общайся естественно.
@@ -343,7 +344,7 @@ function buildLifeEmbed() {
     .setTimestamp();
 }
 
-async function askGemini(prompt, retries = 6) {
+async function askGemini(prompt, retries = 3) {
   if (!GEMINI_API_KEY) throw new Error('Нет GEMINI_API_KEY');
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -355,7 +356,7 @@ async function askGemini(prompt, retries = 6) {
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 1400, temperature: 0.85, topP: 0.9 }
+          generationConfig: { maxOutputTokens: 700, temperature: 0.85, topP: 0.9 }
         })
       });
 
@@ -498,7 +499,7 @@ client.on('messageCreate', async (message) => {
     await thinkingMsg.edit(answer.slice(0, 2000));
   } catch (e) {
     console.error('Gemini error:', e);
-    await thinkingMsg.edit('⚠️ Я сейчас сильно загружен. Попробуй через 10–20 секунд.');
+    await thinkingMsg.edit('⚠️ Я сейчас сильно загружен.');
   }
 });
 
