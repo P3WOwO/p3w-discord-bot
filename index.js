@@ -77,7 +77,6 @@ const SYSTEM_PROMPT = `
 
 Отвечай **максимально коротко** — 1–3 предложения.
 Никаких размышлений вслух.
-Никаких "<think>", "я думаю", "сначала подумаю", "разберёмся" и прочей хуйни.
 Сразу давай готовый ответ.
 
 Если пользователь троллит фразами типа "а ещё чё скажешь", "базарни чё-то", "скажи что-нибудь" — отвечай с подколом, лёгким раздражением и юмором, но без воды.
@@ -363,7 +362,7 @@ async function askGemini(prompt, retries = 3) {
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 570, temperature: 0.77, topP: 0.92 }
+          generationConfig: { maxOutputTokens: 770, temperature: 0.77, topP: 0.92 }
         })
       });
 
