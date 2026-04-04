@@ -50,11 +50,7 @@ let checkpointTimer = null;
 let presenceRefreshTimer = null;
 let presenceRotateTimer = null;
 
-let lifeState = {
-  startedAt: null,
-  phrase: null,
-};
-
+let lifeState = { startedAt: null, phrase: null };
 let channelMemory = {};
 
 const PRESENCE_VERBS = [
@@ -62,7 +58,7 @@ const PRESENCE_VERBS = [
   'Проверку', 'Перезагрузку', 'Калибровку', 'Мемификацию', 'Рендеринг', 'Оптимизацию',
   'Патчинг', 'Загрузку', 'Разборку', 'Синхронизацию', 'Фильтрацию', 'Декодирование',
   'Свертку', 'Печать', 'Замес', 'Шейдинг', 'Лутинг', 'Фарминг', 'Переупаковку',
-  'Тюнинг', 'Бустинг', 'Троттлинг', 'Стабилизацию',
+  'Тюнинг', 'Бустинг', 'Троттлинг', 'Стабилизацию'
 ];
 
 const PRESENCE_NOUNS = [
@@ -71,20 +67,15 @@ const PRESENCE_NOUNS = [
   'ламп', 'обоев', 'ботинок', 'пылесоса', 'чайника', 'дверей', 'кошек', 'кактусов',
   'диванов', 'проводов', 'носков', 'тарелок', 'клавиатур', 'мониторов', 'бананов',
   'швабр', 'облаков', 'скрепок', 'проводков', 'сосисок', 'пауков', 'мышек', 'арбузов',
-  'стульев', 'пружин', 'гигабайтов', 'лагов', 'фпсов', 'битов', 'нейронок', 'Azi', 'Никнэйма',
+  'стульев', 'пружин', 'гигабайтов', 'лагов', 'фпсов', 'битов', 'нейронок', 'Azi', 'Никнэйма'
 ];
 
 const SYSTEM_PROMPT = `
-Ты — Discord-бот.
-Ты не человек и не скрываешь, что являешься ботом.
-У тебя весёлый, дружелюбный, разговорный характер.
-Отвечай естественно, иногда с лёгким юмором.
-Учитывай последние сообщения в канале и кто что написал.
-Не ругай пользователя за повторы без причины.
-Если контекста мало — отвечай коротко и по делу.
-
-ОТВЕЧАЙ МАКСИМАЛЬНО КОРОТКО И ПО ДЕЛУ (обычно 1–4 предложения). 
-Не растягивай ответы, не пиши длинные монологи. Будь лаконичным.
+Ты — Discord-бот. Ты не человек.
+Весёлый, дружелюбный, разговорный стиль.
+Отвечай естественно и с лёгким юмором.
+ОТВЕЧАЙ МАКСИМАЛЬНО КОРОТКО (1–4 предложения максимум).
+Не растягивай ответы.
 `;
 
 function getNextTargetDayUnix(dayOfMonth = 23) {
@@ -95,30 +86,21 @@ function getNextTargetDayUnix(dayOfMonth = 23) {
   if (target <= now) {
     target.setMonth(target.getMonth() + 1);
     target.setDate(dayOfMonth);
-    target.setHours(0, 0, 0, 0);
   }
   return Math.floor(target.getTime() / 1000);
 }
 
 function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 function loadVoiceData() {
   ensureDataDir();
-  if (!fs.existsSync(VOICE_DATA_FILE)) {
-    voiceTimes = {};
-    return;
-  }
+  if (!fs.existsSync(VOICE_DATA_FILE)) return voiceTimes = {};
   try {
     const raw = JSON.parse(fs.readFileSync(VOICE_DATA_FILE, 'utf8'));
-    voiceTimes = raw?.voiceTimes && typeof raw.voiceTimes === 'object' ? raw.voiceTimes : (raw && typeof raw === 'object' ? raw : {});
-  } catch (error) {
-    console.error('Не удалось прочитать voice_times.json, начинаю с пустой статистики:', error);
-    voiceTimes = {};
-  }
+    voiceTimes = raw?.voiceTimes || {};
+  } catch { voiceTimes = {}; }
 }
 
 function saveVoiceData() {
@@ -128,40 +110,24 @@ function saveVoiceData() {
 
 function loadLifeData() {
   ensureDataDir();
-  if (!fs.existsSync(LIFE_DATA_FILE)) {
-    lifeState = { startedAt: null, phrase: null };
-    return;
-  }
+  if (!fs.existsSync(LIFE_DATA_FILE)) return lifeState = { startedAt: null, phrase: null };
   try {
     const raw = JSON.parse(fs.readFileSync(LIFE_DATA_FILE, 'utf8'));
-    lifeState = {
-      startedAt: typeof raw?.startedAt === 'number' ? raw.startedAt : null,
-      phrase: typeof raw?.phrase === 'string' ? raw.phrase : null,
-    };
-  } catch (error) {
-    console.error('Не удалось прочитать life_state.json, создаю новый:', error);
-    lifeState = { startedAt: null, phrase: null };
-  }
+    lifeState = { startedAt: raw?.startedAt || null, phrase: raw?.phrase || null };
+  } catch { lifeState = { startedAt: null, phrase: null }; }
 }
 
 function saveLifeData() {
   ensureDataDir();
-  fs.writeFileSync(LIFE_DATA_FILE, JSON.stringify({ startedAt: lifeState.startedAt, phrase: lifeState.phrase }, null, 2));
+  fs.writeFileSync(LIFE_DATA_FILE, JSON.stringify(lifeState, null, 2));
 }
 
 function loadAIMemory() {
   ensureDataDir();
-  if (!fs.existsSync(AI_MEMORY_FILE)) {
-    channelMemory = {};
-    return;
-  }
+  if (!fs.existsSync(AI_MEMORY_FILE)) return channelMemory = {};
   try {
-    const raw = JSON.parse(fs.readFileSync(AI_MEMORY_FILE, 'utf8'));
-    channelMemory = raw && typeof raw === 'object' ? raw : {};
-  } catch (error) {
-    console.error('Не удалось прочитать ai_memory.json, начинаю с пустой памяти:', error);
-    channelMemory = {};
-  }
+    channelMemory = JSON.parse(fs.readFileSync(AI_MEMORY_FILE, 'utf8')) || {};
+  } catch { channelMemory = {}; }
 }
 
 function saveAIMemory() {
@@ -169,9 +135,7 @@ function saveAIMemory() {
   fs.writeFileSync(AI_MEMORY_FILE, JSON.stringify(channelMemory, null, 2));
 }
 
-function getKey(guildId, userId) {
-  return `${guildId}:${userId}`;
-}
+function getKey(guildId, userId) { return `${guildId}:${userId}`; }
 
 function addTime(guildId, userId, seconds) {
   if (seconds <= 0) return;
@@ -182,13 +146,11 @@ function addTime(guildId, userId, seconds) {
 
 function getCurrentSessionSeconds(key) {
   const startedAt = activeSessions.get(key);
-  if (!startedAt) return 0;
-  return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  return startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
 }
 
 function getTotalSeconds(guildId, userId) {
-  const key = getKey(guildId, userId);
-  return (voiceTimes[key] || 0) + getCurrentSessionSeconds(key);
+  return (voiceTimes[getKey(guildId, userId)] || 0) + getCurrentSessionSeconds(getKey(guildId, userId));
 }
 
 function formatTime(seconds) {
@@ -218,15 +180,12 @@ function formatShortTime(seconds) {
 function formatTopTime(seconds) {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
-  if (d > 0) return `${d}д ${h}ч`;
-  return `${h}ч`;
+  return d > 0 ? `${d}д ${h}ч` : `${h}ч`;
 }
 
 function startSession(guildId, userId) {
   const key = getKey(guildId, userId);
-  if (!activeSessions.has(key)) {
-    activeSessions.set(key, Date.now());
-  }
+  if (!activeSessions.has(key)) activeSessions.set(key, Date.now());
 }
 
 function endSession(guildId, userId) {
@@ -243,8 +202,7 @@ function checkpointSessions(force = false) {
   let changed = false;
   for (const [key, startedAt] of activeSessions.entries()) {
     const elapsed = Math.floor((now - startedAt) / 1000);
-    if (elapsed <= 0) continue;
-    if (force || elapsed >= 60) {
+    if (elapsed > 0 && (force || elapsed >= 60)) {
       voiceTimes[key] = (voiceTimes[key] || 0) + elapsed;
       activeSessions.set(key, now);
       changed = true;
@@ -254,24 +212,16 @@ function checkpointSessions(force = false) {
 }
 
 async function restoreCurrentVoiceSessions() {
-  const guild = client.guilds.cache.get(GUILD_ID) || (await client.guilds.fetch(GUILD_ID).catch(() => null));
+  const guild = client.guilds.cache.get(GUILD_ID) || await client.guilds.fetch(GUILD_ID).catch(() => null);
   if (!guild) return;
   activeSessions.clear();
   for (const [userId, voiceState] of guild.voiceStates.cache) {
-    if (!voiceState.channelId || userId === client.user.id) continue;
-    startSession(GUILD_ID, userId);
+    if (voiceState.channelId && userId !== client.user.id) startSession(GUILD_ID, userId);
   }
 }
 
-function pickRandom(array) {
-  return array[Math.floor(Math.random() * array.length)];
-}
-
-function getRandomPresencePhrase() {
-  const a = pickRandom(PRESENCE_VERBS);
-  const b = pickRandom(PRESENCE_NOUNS);
-  return `${a} ${b}`;
-}
+function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function getRandomPresencePhrase() { return `${pickRandom(PRESENCE_VERBS)} ${pickRandom(PRESENCE_NOUNS)}`; }
 
 function ensureLifeState() {
   if (!lifeState.startedAt) lifeState.startedAt = Date.now();
@@ -280,36 +230,24 @@ function ensureLifeState() {
 }
 
 function buildLifeSeconds() {
-  if (!lifeState.startedAt) return 0;
-  return Math.max(0, Math.floor((Date.now() - lifeState.startedAt) / 1000));
+  return lifeState.startedAt ? Math.max(0, Math.floor((Date.now() - lifeState.startedAt) / 1000)) : 0;
 }
 
 function buildPresenceActivity() {
   ensureLifeState();
-  const lifeSeconds = buildLifeSeconds();
   return {
-    name: `Слушает ${lifeState.phrase} • ${formatShortTime(lifeSeconds)}`,
+    name: `Слушает ${lifeState.phrase} • ${formatShortTime(buildLifeSeconds())}`,
     type: ActivityType.Listening,
-    timestamps: { start: lifeState.startedAt },
+    timestamps: { start: lifeState.startedAt }
   };
 }
 
 async function applyPresence() {
   if (!client.user) return;
-  client.user.setPresence({
-    status: 'dnd',
-    activities: [buildPresenceActivity()],
-  });
+  client.user.setPresence({ status: 'dnd', activities: [buildPresenceActivity()] });
 }
 
-async function refreshPresence() {
-  try {
-    await applyPresence();
-  } catch (error) {
-    console.error('Ошибка обновления presence:', error);
-  }
-}
-
+async function refreshPresence() { try { await applyPresence(); } catch (e) { console.error('Presence error:', e); } }
 async function rotatePresencePhrase() {
   ensureLifeState();
   lifeState.phrase = getRandomPresencePhrase();
@@ -392,8 +330,8 @@ async function buildTopEmbed(guild, targetUser) {
         '# Пользователь          Дни/часы',
         '-----------------------------------------',
         ...top.map((item, i) => {
-          const name = getMemberName(guild, item.userId).then(n => n.length > 26 ? n.slice(0, 25) + '…' : n);
-          return `${String(i + 1).padEnd(2)} ${name.padEnd(28)} ${formatTopTime(item.seconds)}`;
+          const name = getMemberName(guild, item.userId); // будет await ниже
+          return `${String(i + 1).padEnd(2)} ${(name.length > 26 ? name.slice(0, 25) + '…' : name).padEnd(28)} ${formatTopTime(item.seconds)}`;
         }),
         '```'
       ].join('\n');
@@ -425,141 +363,116 @@ function buildLifeEmbed() {
     .setTimestamp();
 }
 
-function getChannelHistory(channelId) {
-  const history = channelMemory[channelId];
-  return Array.isArray(history) ? history.slice(-MAX_HISTORY) : [];
-}
+/* ====================== GEMINI ====================== */
+async function askGemini(prompt, retries = 6) {
+  if (!GEMINI_API_KEY) throw new Error('Нет GEMINI_API_KEY');
 
-function pushMemory(channelId, role, name, text) {
-  const cleanText = String(text || '').trim();
-  if (!cleanText) return;
-  const history = getChannelHistory(channelId);
-  history.push({ role, name, text: cleanText });
-  channelMemory[channelId] = history.slice(-MAX_HISTORY);
-  saveAIMemory();
-}
-
-function buildPrompt(channelId, currentUserName, currentText, recentMessages = []) {
-  const history = getChannelHistory(channelId);
-  const recentBlock = recentMessages.length
-    ? ['', 'Последние сообщения в чате:', ...recentMessages.map(m => `${m.name}: ${m.text}`)]
-    : [];
-  return [
-    SYSTEM_PROMPT.trim(),
-    '',
-    'История диалога:',
-    ...history.map(m => `${m.name}: ${m.text}`),
-    ...recentBlock,
-    '',
-    `${currentUserName}: ${currentText}`,
-  ].join('\n');
-}
-
-/** 
- * НОВАЯ ФУНКЦИЯ askGemini с:
- * 1. Моделью gemini-1.5-flash (быстрее и стабильнее)
- * 2. Ограничением длины ответа (maxOutputTokens: 650)
- * 3. Автоматическим повтором запроса при 503 (сервер перегружен)
- */
-async function askGemini(prompt, retries = 3) {
-  if (!GEMINI_API_KEY) {
-    throw new Error('Не хватает GEMINI_API_KEY в переменных окружения.');
-  }
-
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+  const model = 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': GEMINI_API_KEY,
-        },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens: 650,   // ← сильно сокращает длину ответа
-            temperature: 0.8,
-            topP: 0.9,
-          },
-        }),
+          generationConfig: { maxOutputTokens: 600, temperature: 0.8, topP: 0.9 }
+        })
       });
 
-      if (!response.ok) {
-        const text = await response.text();
-        if (response.status === 503 && attempt < retries) {
-          console.log(`[Gemini] 503 перегружен (попытка ${attempt}/${retries}) — повтор через 2 сек...`);
-          await new Promise(r => setTimeout(r, 2200));
+      if (!res.ok) {
+        const errText = await res.text();
+        if (res.status === 503 && attempt < retries) {
+          const delay = Math.pow(2, attempt) * 2000;
+          console.log(`[Gemini] 503 перегружен → ждём ${delay}мс (попытка ${attempt}/${retries})`);
+          await new Promise(r => setTimeout(r, delay));
           continue;
         }
-        throw new Error(`Gemini API error ${response.status}: ${text}`);
+        throw new Error(`Gemini ${res.status}: ${errText}`);
       }
 
-      const data = await response.json();
-      const parts = data?.candidates?.[0]?.content?.parts || [];
-      const answer = parts.map(p => p.text || '').join('').trim();
-      return answer || 'Пустой ответ.';
-    } catch (error) {
-      if (attempt < retries && (String(error).includes('503') || String(error).includes('fetch'))) {
-        console.log(`[Gemini] Ошибка (попытка ${attempt}/${retries}), повтор...`);
-        await new Promise(r => setTimeout(r, 2000));
+      const data = await res.json();
+      return data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim() || 'Пустой ответ.';
+    } catch (err) {
+      if (attempt < retries && (String(err).includes('503') || String(err).includes('fetch'))) {
+        const delay = Math.pow(2, attempt) * 2000;
+        console.log(`[Gemini] Ошибка → повтор через ${delay}мс (попытка ${attempt}/${retries})`);
+        await new Promise(r => setTimeout(r, delay));
         continue;
       }
-      throw error;
+      console.error('[Gemini] Полная ошибка:', err);
+      throw err;
     }
   }
 }
 
-async function getRecentMessages(channel, limit = 6, botMessageId = null) {
+async function getRecentMessages(channel, limit = 6) {
   const fetched = await channel.messages.fetch({ limit }).catch(() => null);
   if (!fetched) return [];
   return [...fetched.values()]
-    .filter(m => !m.author.bot && m.id !== botMessageId)
+    .filter(m => !m.author.bot)
     .reverse()
     .map(m => ({
       name: m.member?.displayName || m.author.username,
-      text: m.content?.trim() || '[без текста]',
+      text: m.content?.trim() || '[без текста]'
     }));
 }
 
+function getChannelHistory(channelId) {
+  const h = channelMemory[channelId];
+  return Array.isArray(h) ? h.slice(-MAX_HISTORY) : [];
+}
+
+function pushMemory(channelId, role, name, text) {
+  const clean = String(text || '').trim();
+  if (!clean) return;
+  const history = getChannelHistory(channelId);
+  history.push({ role, name, text: clean });
+  channelMemory[channelId] = history.slice(-MAX_HISTORY);
+  saveAIMemory();
+}
+
+function buildPrompt(channelId, userName, text, recent = []) {
+  const history = getChannelHistory(channelId);
+  const recentBlock = recent.length ? ['', 'Последние сообщения:', ...recent.map(m => `${m.name}: ${m.text}`)] : [];
+  return [
+    SYSTEM_PROMPT,
+    '',
+    'История:',
+    ...history.map(m => `${m.name}: ${m.text}`),
+    ...recentBlock,
+    '',
+    `${userName}: ${text}`
+  ].join('\n');
+}
+
+/* ====================== READY ====================== */
 client.once('ready', async () => {
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
   loadVoiceData();
   loadLifeData();
   loadAIMemory();
 
-  try {
-    await registerCommands();
-    console.log('✅ Slash-команды зарегистрированы');
-  } catch (error) {
-    console.error('❌ Ошибка регистрации команд:', error);
-  }
-
+  await registerCommands().catch(console.error);
   await restoreCurrentVoiceSessions();
   await refreshPresence();
 
   checkpointTimer = setInterval(() => checkpointSessions(false), CHECKPOINT_MS);
-  checkpointTimer.unref?.();
-
   presenceRefreshTimer = setInterval(() => refreshPresence().catch(console.error), PRESENCE_REFRESH_MS);
-  presenceRefreshTimer.unref?.();
-
   presenceRotateTimer = setInterval(() => rotatePresencePhrase().catch(console.error), PRESENCE_ROTATE_MS);
-  presenceRotateTimer.unref?.();
 
-  console.log(`🌿 Статус запущен: "Слушает ${lifeState.phrase}"`);
+  console.log(`🌿 Статус: "Слушает ${lifeState.phrase}"`);
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
   if (!newState.guild || newState.guild.id !== GUILD_ID || newState.id === client.user.id) return;
+  const oldChannel = oldState.channelId;
+  const newChannel = newState.channelId;
 
-  const oldChannelId = oldState.channelId;
-  const newChannelId = newState.channelId;
-
-  if (!oldChannelId && newChannelId) startSession(newState.guild.id, newState.id);
-  else if (oldChannelId && !newChannelId) endSession(newState.guild.id, newState.id);
-  else if (oldChannelId && newChannelId && oldChannelId !== newChannelId) {
+  if (!oldChannel && newChannel) startSession(newState.guild.id, newState.id);
+  else if (oldChannel && !newChannel) endSession(newState.guild.id, newState.id);
+  else if (oldChannel && newChannel && oldChannel !== newChannel) {
     endSession(newState.guild.id, newState.id);
     startSession(newState.guild.id, newState.id);
   }
@@ -567,65 +480,50 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild || !message.content) return;
-
   const authorName = message.member?.displayName || message.author.username;
 
-  // --- 1. PREFIX !say ---
+  // !say
   if (message.content.startsWith(PREFIX)) {
-    const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
-    const command = (args.shift() || '').toLowerCase();
-
-    if (command === 'say') {
-      const promptText = args.join(' ').trim();
-      if (!promptText) {
-        await message.reply(`Напиши текст после \`${PREFIX}say\`.`);
-        return;
-      }
-
-      const recentMessages = await getRecentMessages(message.channel, 6);
+    const args = message.content.slice(1).trim().split(/\s+/);
+    if (args[0].toLowerCase() === 'say') {
+      const promptText = args.slice(1).join(' ').trim();
+      if (!promptText) return message.reply(`Напиши текст после \`!say\`.`);
+      const recent = await getRecentMessages(message.channel, 6);
       pushMemory(message.channel.id, 'user', authorName, promptText);
-
-      const fullPrompt = buildPrompt(message.channel.id, authorName, promptText, recentMessages);
-
       try {
-        const answer = await askGemini(fullPrompt);
+        const answer = await askGemini(buildPrompt(message.channel.id, authorName, promptText, recent));
         pushMemory(message.channel.id, 'model', 'Bot', answer);
-        await message.reply(answer.slice(0, 2000));
-      } catch (error) {
-        console.error('Ошибка Gemini:', error);
-        await message.reply('❌ Ошибка Gemini.');
+        return message.reply(answer.slice(0, 2000));
+      } catch (e) {
+        console.error('Gemini error:', e);
+        return message.reply('❌ Gemini сейчас перегружен, попробуй через пару минут.');
       }
-      return;
     }
   }
 
-  // --- 2. УПОМИНАНИЕ БОТА ИЛИ ОТВЕТ НА СООБЩЕНИЕ БОТА ---
+  // Упоминание или ответ на бота
   const isMentioned = message.mentions.has(client.user);
   let isReplyToBot = false;
   if (message.reference?.messageId) {
-    const repliedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
-    if (repliedMsg && repliedMsg.author.id === client.user.id) isReplyToBot = true;
+    const replied = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+    if (replied?.author.id === client.user.id) isReplyToBot = true;
   }
-
   if (!isMentioned && !isReplyToBot) return;
 
   const cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
   if (!cleanText) return;
 
-  const recentMessages = await getRecentMessages(message.channel, 6);
+  const recent = await getRecentMessages(message.channel, 6);
   pushMemory(message.channel.id, 'user', authorName, cleanText);
 
-  const fullPrompt = buildPrompt(message.channel.id, authorName, cleanText, recentMessages);
   const thinkingMsg = await message.reply('Думаю...');
-
   try {
-    const answer = await askGemini(fullPrompt);
+    const answer = await askGemini(buildPrompt(message.channel.id, authorName, cleanText, recent));
     pushMemory(message.channel.id, 'model', 'Bot', answer);
     await thinkingMsg.edit(answer.slice(0, 2000));
-  } catch (error) {
-    console.error('Ошибка Gemini:', error);
-    const msg = String(error).includes('503') ? '⚠️ Сори, я перегружен. Попробуй чуть позже.' : '❌ Что-то пошло не так.';
-    await thinkingMsg.edit(msg);
+  } catch (e) {
+    console.error('Gemini error:', e);
+    await thinkingMsg.edit('⚠️ Я в перегрузке.');
   }
 });
 
@@ -633,24 +531,18 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'ping') {
-    await interaction.reply({ content: `🏓 Pong! \`${client.ws.ping}ms\``, ephemeral: true });
-    return;
+    return interaction.reply({ content: `🏓 Pong! \`${client.ws.ping}ms\``, ephemeral: true });
   }
 
   if (interaction.commandName === 'msg') {
     await interaction.deferReply({ ephemeral: true });
     const channel = interaction.options.getChannel('channel', true);
-    const messageText = interaction.options.getString('message', true);
-
-    if (!channel.isTextBased()) {
-      await interaction.editReply({ content: '❌ Это не текстовый канал.' });
-      return;
-    }
+    const msgText = interaction.options.getString('message', true);
+    if (!channel.isTextBased()) return interaction.editReply({ content: '❌ Это не текстовый канал.' });
     try {
-      await channel.send({ content: messageText });
+      await channel.send({ content: msgText });
       await interaction.editReply({ content: `✅ Сообщение отправлено в ${channel}.` });
-    } catch (error) {
-      console.error('Ошибка отправки сообщения:', error);
+    } catch (e) {
       await interaction.editReply({ content: '❌ Не удалось отправить сообщение.' });
     }
     return;
@@ -662,7 +554,6 @@ client.on('interactionCreate', async (interaction) => {
     const total = getTotalSeconds(interaction.guild.id, target.id);
     const member = await interaction.guild.members.fetch(target.id).catch(() => null);
     const name = member?.displayName || target.username;
-
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
       .setAuthor({ name, iconURL: target.displayAvatarURL({ size: 256 }) })
@@ -671,38 +562,29 @@ client.on('interactionCreate', async (interaction) => {
       .setThumbnail(target.displayAvatarURL({ size: 256 }))
       .setFooter({ text: `ID: ${target.id}` })
       .setTimestamp();
-
-    await interaction.editReply({ embeds: [embed] });
-    return;
+    return interaction.editReply({ embeds: [embed] });
   }
 
   if (interaction.commandName === 'top') {
     await interaction.deferReply();
     const target = interaction.options.getUser('user') || interaction.user;
     const embed = await buildTopEmbed(interaction.guild, target);
-    await interaction.editReply({ embeds: [embed] });
-    return;
+    return interaction.editReply({ embeds: [embed] });
   }
 
   if (interaction.commandName === 'life') {
     await interaction.deferReply();
-    const embed = buildLifeEmbed();
-    await interaction.editReply({ embeds: [embed] });
-    return;
+    return interaction.editReply({ embeds: [buildLifeEmbed()] });
   }
 
   if (interaction.commandName === 'purge') {
     await interaction.deferReply({ ephemeral: true });
     const amount = interaction.options.getInteger('amount', true);
-    if (!interaction.channel?.isTextBased()) {
-      await interaction.editReply({ content: '❌ Это не текстовый канал.' });
-      return;
-    }
+    if (!interaction.channel?.isTextBased()) return interaction.editReply({ content: '❌ Это не текстовый канал.' });
     try {
       const deleted = await interaction.channel.bulkDelete(amount, true);
       await interaction.editReply({ content: `✅ Удалено сообщений: **${deleted.size}**` });
-    } catch (error) {
-      console.error('Ошибка purge:', error);
+    } catch (e) {
       await interaction.editReply({ content: '❌ Не удалось удалить сообщения.' });
     }
     return;
@@ -711,15 +593,11 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName === 'jtm') {
     await interaction.deferReply({ ephemeral: true });
     const voiceChannel = interaction.member?.voice?.channel;
-    if (!voiceChannel) {
-      await interaction.editReply({ content: '❌ Ты не в войсе.' });
-      return;
-    }
+    if (!voiceChannel) return interaction.editReply({ content: '❌ Ты не в войсе.' });
     const me = interaction.guild.members.me;
     const perms = voiceChannel.permissionsFor(me);
     if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect])) {
-      await interaction.editReply({ content: '❌ У меня нет прав зайти в этот войс.' });
-      return;
+      return interaction.editReply({ content: '❌ У меня нет прав зайти в этот войс.' });
     }
     try {
       const existing = getVoiceConnection(interaction.guild.id);
@@ -732,26 +610,19 @@ client.on('interactionCreate', async (interaction) => {
         selfMute: false,
       });
       await interaction.editReply({ content: `✅ Зашёл в ${voiceChannel}.` });
-    } catch (error) {
-      console.error('Ошибка jtm:', error);
+    } catch (e) {
       await interaction.editReply({ content: '❌ Не удалось подключиться к войсу.' });
     }
-    return;
   }
 });
 
 async function shutdown(signal) {
   console.log(`Получен ${signal}, сохраняю данные...`);
-  try {
-    checkpointSessions(true);
-    saveVoiceData();
-    saveLifeData();
-    saveAIMemory();
-  } catch (error) {
-    console.error('Ошибка при сохранении перед выключением:', error);
-  } finally {
-    process.exit(0);
-  }
+  checkpointSessions(true);
+  saveVoiceData();
+  saveLifeData();
+  saveAIMemory();
+  process.exit(0);
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'));
@@ -760,8 +631,6 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('Bot is alive');
-}).listen(process.env.PORT || 3000, () => {
-  console.log(`🌐 HTTP server on ${process.env.PORT || 3000}`);
-});
+}).listen(process.env.PORT || 8080);
 
 client.login(TOKEN);
