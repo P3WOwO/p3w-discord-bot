@@ -12,14 +12,13 @@ const {
 
 const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
 
-const LIFE_TARGET_DAY = 23;
-
 const fs = require('fs');
 const http = require('http');
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
   throw new Error('Не хватает TOKEN, CLIENT_ID или GUILD_ID в переменных окружения.');
@@ -28,15 +27,19 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
 const DATA_DIR = '/data';
 const VOICE_DATA_FILE = `${DATA_DIR}/voice_times.json`;
 const LIFE_DATA_FILE = `${DATA_DIR}/life_state.json`;
+const AI_MEMORY_FILE = `${DATA_DIR}/ai_memory.json`;
 
 const CHECKPOINT_MS = 60 * 1000;
 const PRESENCE_REFRESH_MS = 60 * 1000;
 const PRESENCE_ROTATE_MS = 60 * 60 * 1000;
 const TOP_LIMIT = 7;
+const MAX_HISTORY = 12;
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMembers,
   ],
@@ -53,13 +56,14 @@ let lifeState = {
   phrase: null,
 };
 
+let channelMemory = {};
+
 const PRESENCE_VERBS = [
   'Компиляцию',
   'Сборку',
   'Обработку',
   'Дифракцию',
   'Извержение',
-  'Ущемление',
   'Почернение',
   'Проверку',
   'Перезагрузку',
@@ -92,8 +96,6 @@ const PRESENCE_NOUNS = [
   'коммунизма',
   'света',
   'вулкана',
-  'уретры',
-  'игоря',
   'мемов',
   'вайба',
   'кринжа',
@@ -134,12 +136,17 @@ const PRESENCE_NOUNS = [
   'фпсов',
   'битов',
   'нейронок',
-  'негра',
-  'уретры',
-  'евреев',
   'Azi',
   'Никнэйма',
 ];
+
+const SYSTEM_PROMPT = `
+Ты Discord-бот.
+Отвечай по-русски.
+Учитывай последние сообщения в канале и кто их написал.
+Не притворяйся человеком.
+Если вопрос короткий — отвечай коротко.
+`;
 
 function getNextTargetDayUnix(dayOfMonth = 23) {
   const now = new Date();
@@ -230,6 +237,28 @@ function saveLifeData() {
       2
     )
   );
+}
+
+function loadAIMemory() {
+  ensureDataDir();
+
+  if (!fs.existsSync(AI_MEMORY_FILE)) {
+    channelMemory = {};
+    return;
+  }
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(AI_MEMORY_FILE, 'utf8'));
+    channelMemory = raw && typeof raw === 'object' ? raw : {};
+  } catch (error) {
+    console.error('Не удалось прочитать ai_memory.json, начинаю с пустой памяти:', error);
+    channelMemory = {};
+  }
+}
+
+function saveAIMemory() {
+  ensureDataDir();
+  fs.writeFileSync(AI_MEMORY_FILE, JSON.stringify(channelMemory, null, 2));
 }
 
 function getKey(guildId, userId) {
@@ -472,12 +501,27 @@ async function registerCommands() {
       .setName('jtm')
       .setDescription('Зайти в твой войс')
       .toJSON(),
+
+    new SlashCommandBuilder()
+      .setName('ai')
+      .setDescription('Спросить Gemini')
+      .addStringOption((option) =>
+        option
+          .setName('prompt')
+          .setDescription('Что спросить у бота')
+          .setRequired(true)
+      )
+      .toJSON(),
   ];
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
 
   await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
     body: commands,
+  });
+
+  await rest.put(Routes.applicationCommands(CLIENT_ID), {
+    body: [],
   });
 }
 
@@ -575,16 +619,84 @@ async function buildTopEmbed(guild, targetUser) {
 function buildLifeEmbed() {
   ensureLifeState();
   const lifeSeconds = buildLifeSeconds();
-  const targetUnix = getNextTargetDayUnix(LIFE_TARGET_DAY);
+  const targetUnix = getNextTargetDayUnix(23);
 
   return new EmbedBuilder()
     .setColor(0x57f287)
     .setTitle('💚 /life')
     .setDescription(
       `**${formatTime(lifeSeconds)}**\n\n` +
-      `я здохну: <t:${targetUnix}:R>`
+      `Следующая дата: <t:${targetUnix}:R>`
     )
     .setTimestamp();
+}
+
+function getChannelHistory(channelId) {
+  const history = channelMemory[channelId];
+  if (!Array.isArray(history)) return [];
+  return history.slice(-MAX_HISTORY);
+}
+
+function pushMemory(channelId, role, name, text) {
+  const cleanText = String(text || '').trim();
+  if (!cleanText) return;
+
+  const history = getChannelHistory(channelId);
+  history.push({
+    role,
+    name,
+    text: cleanText,
+  });
+
+  channelMemory[channelId] = history.slice(-MAX_HISTORY);
+  saveAIMemory();
+}
+
+function buildPrompt(channelId, currentUserName, currentText) {
+  const history = getChannelHistory(channelId);
+
+  const lines = [
+    SYSTEM_PROMPT.trim(),
+    '',
+    'История диалога:',
+    ...history.map((m) => `${m.name}: ${m.text}`),
+    `${currentUserName}: ${currentText}`,
+  ];
+
+  return lines.join('\n');
+}
+
+async function askGemini(prompt) {
+  if (!GEMINI_API_KEY) {
+    throw new Error('Не хватает GEMINI_API_KEY в переменных окружения.');
+  }
+
+  const response = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: prompt }],
+          },
+        ],
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gemini API error ${response.status}: ${text}`);
+  }
+
+  const data = await response.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  return parts.map((p) => p.text || '').join('').trim() || 'Пустой ответ.';
 }
 
 client.once('ready', async () => {
@@ -592,6 +704,7 @@ client.once('ready', async () => {
 
   loadVoiceData();
   loadLifeData();
+  loadAIMemory();
 
   try {
     await registerCommands();
@@ -646,6 +759,38 @@ client.on('voiceStateUpdate', (oldState, newState) => {
   if (oldChannelId && newChannelId && oldChannelId !== newChannelId) {
     endSession(newState.guild.id, newState.id);
     startSession(newState.guild.id, newState.id);
+  }
+});
+
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+  if (!message.content) return;
+
+  const botMentioned = message.mentions.has(client.user);
+  const repliedToBot =
+    message.reference?.messageId &&
+    (await message.channel.messages.fetch(message.reference.messageId).catch(() => null))?.author?.id === client.user.id;
+
+  if (!botMentioned && !repliedToBot) return;
+
+  const cleanText = message.content
+    .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
+    .trim();
+
+  const userText = cleanText || 'Привет';
+  const authorName = message.member?.displayName || message.author.username;
+
+  pushMemory(message.channel.id, 'user', authorName, userText);
+
+  const prompt = buildPrompt(message.channel.id, authorName, userText);
+
+  try {
+    const answer = await askGemini(prompt);
+    pushMemory(message.channel.id, 'model', 'Bot', answer);
+    await message.reply(answer.slice(0, 2000));
+  } catch (error) {
+    console.error('Ошибка Gemini:', error);
+    await message.reply('❌ Не смог получить ответ от Gemini.');
   }
 });
 
@@ -779,6 +924,28 @@ client.on('interactionCreate', async (interaction) => {
 
     return;
   }
+
+  if (interaction.commandName === 'ai') {
+    await interaction.deferReply();
+
+    const prompt = interaction.options.getString('prompt', true);
+    const authorName = interaction.user.username;
+
+    pushMemory(interaction.channel.id, 'user', authorName, prompt);
+
+    const fullPrompt = buildPrompt(interaction.channel.id, authorName, prompt);
+
+    try {
+      const answer = await askGemini(fullPrompt);
+      pushMemory(interaction.channel.id, 'model', 'Bot', answer);
+      await interaction.editReply(answer.slice(0, 2000));
+    } catch (error) {
+      console.error('Ошибка Gemini:', error);
+      await interaction.editReply('❌ Не смог получить ответ от Gemini.');
+    }
+
+    return;
+  }
 });
 
 async function shutdown(signal) {
@@ -787,6 +954,7 @@ async function shutdown(signal) {
     checkpointSessions(true);
     saveVoiceData();
     saveLifeData();
+    saveAIMemory();
   } catch (error) {
     console.error('Ошибка при сохранении перед выключением:', error);
   } finally {
@@ -803,7 +971,7 @@ http
     res.end('Bot is alive');
   })
   .listen(process.env.PORT || 3000, () => {
-    console.log('🌐 HTTP сервер запущен');
+    console.log(`🌐 HTTP server on ${process.env.PORT || 3000}`);
   });
 
 client.login(TOKEN);
