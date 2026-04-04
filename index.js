@@ -257,30 +257,12 @@ async function rotatePresencePhrase() {
 
 async function registerCommands() {
   const commands = [
-    new SlashCommandBuilder()
-      .setName('time')
-      .setDescription('Показать время, проведённое в голосовых каналах')
-      .addUserOption(option => option.setName('user').setDescription('Пользователь (если не указать — покажет твоё время)').setRequired(false))
-      .toJSON(),
-    new SlashCommandBuilder()
-      .setName('top')
-      .setDescription('Показать топ по времени в голосовых каналах')
-      .addUserOption(option => option.setName('user').setDescription('Пользователь, которого тоже надо показать внизу, если он не в топе').setRequired(false))
-      .toJSON(),
+    new SlashCommandBuilder().setName('time').setDescription('Показать время, проведённое в голосовых каналах').addUserOption(option => option.setName('user').setDescription('Пользователь (если не указать — покажет твоё время)').setRequired(false)).toJSON(),
+    new SlashCommandBuilder().setName('top').setDescription('Показать топ по времени в голосовых каналах').addUserOption(option => option.setName('user').setDescription('Пользователь, которого тоже надо показать внизу, если он не в топе').setRequired(false)).toJSON(),
     new SlashCommandBuilder().setName('life').setDescription('Показать, сколько живёт бот').toJSON(),
     new SlashCommandBuilder().setName('ping').setDescription('Проверить отклик бота').toJSON(),
-    new SlashCommandBuilder()
-      .setName('msg')
-      .setDescription('Отправить сообщение от имени бота в выбранный канал')
-      .addChannelOption(option => option.setName('channel').setDescription('Канал, куда отправить сообщение').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
-      .addStringOption(option => option.setName('message').setDescription('Текст сообщения').setRequired(true))
-      .toJSON(),
-    new SlashCommandBuilder()
-      .setName('purge')
-      .setDescription('Удалить последние N сообщений')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
-      .addIntegerOption(option => option.setName('amount').setDescription('Сколько удалить').setRequired(true).setMinValue(1).setMaxValue(100))
-      .toJSON(),
+    new SlashCommandBuilder().setName('msg').setDescription('Отправить сообщение от имени бота в выбранный канал').addChannelOption(option => option.setName('channel').setDescription('Канал, куда отправить сообщение').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)).addStringOption(option => option.setName('message').setDescription('Текст сообщения').setRequired(true)).toJSON(),
+    new SlashCommandBuilder().setName('purge').setDescription('Удалить последние N сообщений').setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages).addIntegerOption(option => option.setName('amount').setDescription('Сколько удалить').setRequired(true).setMinValue(1).setMaxValue(100)).toJSON(),
     new SlashCommandBuilder().setName('jtm').setDescription('Зайти в твой войс').toJSON(),
   ];
 
@@ -323,16 +305,19 @@ async function buildTopEmbed(guild, targetUser) {
   const targetRank = targetIndex >= 0 ? targetIndex + 1 : null;
   const targetTotal = getTotalSeconds(guild.id, targetUser.id);
 
+  const topRows = await Promise.all(top.map(async (item, i) => {
+    const name = await getMemberName(guild, item.userId);
+    const shortName = name.length > 26 ? name.slice(0, 25) + '…' : name;
+    return `${String(i + 1).padEnd(2)} ${shortName.padEnd(28)} ${formatTopTime(item.seconds)}`;
+  }));
+
   let description = leaderboard.length === 0
     ? 'Пока никто не провёл время в войсе.'
     : [
         '```',
         '# Пользователь          Дни/часы',
         '-----------------------------------------',
-        ...top.map((item, i) => {
-          const name = getMemberName(guild, item.userId); // будет await ниже
-          return `${String(i + 1).padEnd(2)} ${(name.length > 26 ? name.slice(0, 25) + '…' : name).padEnd(28)} ${formatTopTime(item.seconds)}`;
-        }),
+        ...topRows,
         '```'
       ].join('\n');
 
@@ -363,7 +348,6 @@ function buildLifeEmbed() {
     .setTimestamp();
 }
 
-/* ====================== GEMINI ====================== */
 async function askGemini(prompt, retries = 6) {
   if (!GEMINI_API_KEY) throw new Error('Нет GEMINI_API_KEY');
 
@@ -447,7 +431,6 @@ function buildPrompt(channelId, userName, text, recent = []) {
   ].join('\n');
 }
 
-/* ====================== READY ====================== */
 client.once('ready', async () => {
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
   loadVoiceData();
@@ -482,7 +465,6 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild || !message.content) return;
   const authorName = message.member?.displayName || message.author.username;
 
-  // !say
   if (message.content.startsWith(PREFIX)) {
     const args = message.content.slice(1).trim().split(/\s+/);
     if (args[0].toLowerCase() === 'say') {
@@ -496,12 +478,11 @@ client.on('messageCreate', async (message) => {
         return message.reply(answer.slice(0, 2000));
       } catch (e) {
         console.error('Gemini error:', e);
-        return message.reply('❌ Gemini сейчас перегружен, попробуй через пару минут.');
+        return message.reply('❌ перегрузка.');
       }
     }
   }
 
-  // Упоминание или ответ на бота
   const isMentioned = message.mentions.has(client.user);
   let isReplyToBot = false;
   if (message.reference?.messageId) {
@@ -523,7 +504,7 @@ client.on('messageCreate', async (message) => {
     await thinkingMsg.edit(answer.slice(0, 2000));
   } catch (e) {
     console.error('Gemini error:', e);
-    await thinkingMsg.edit('⚠️ Я в перегрузке.');
+    await thinkingMsg.edit('⚠️ Я загружен.');
   }
 });
 
