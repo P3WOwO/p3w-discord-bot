@@ -7,7 +7,10 @@ const {
   Routes,
   ActivityType,
   ChannelType,
+  PermissionFlagsBits,
 } = require('discord.js');
+
+const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
 
 const LIFE_TARGET_DAY = 23;
 
@@ -449,6 +452,25 @@ async function registerCommands() {
           .setRequired(true)
       )
       .toJSON(),
+    new SlashCommandBuilder()
+  .setName('purge')
+  .setDescription('Удалить последние N сообщений')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+  .addIntegerOption((option) =>
+    option
+      .setName('amount')
+      .setDescription('Сколько удалить')
+      .setRequired(true)
+      .setMinValue(1)
+      .setMaxValue(100)
+  )
+  .toJSON(),
+
+new SlashCommandBuilder()
+  .setName('jtm')
+  .setDescription('Зайти в твой войс')
+  .toJSON(),
+    
   ];
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -695,6 +717,38 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.editReply({ embeds: [embed] });
     return;
   }
+  if (interaction.commandName === 'purge') {
+  await interaction.deferReply({ ephemeral: true });
+
+  const amount = interaction.options.getInteger('amount', true);
+
+  try {
+    const deleted = await interaction.channel.bulkDelete(amount, true);
+    await interaction.editReply(`Удалено: ${deleted.size}`);
+  } catch (e) {
+    await interaction.editReply('Ошибка удаления');
+  }
+
+  return;
+}
+  if (interaction.commandName === 'jtm') {
+  await interaction.deferReply({ ephemeral: true });
+
+  const channel = interaction.member.voice.channel;
+  if (!channel) {
+    await interaction.editReply('Ты не в войсе');
+    return;
+  }
+
+  joinVoiceChannel({
+    channelId: channel.id,
+    guildId: interaction.guild.id,
+    adapterCreator: interaction.guild.voiceAdapterCreator,
+  });
+
+  await interaction.editReply('Зашёл в войс');
+  return;
+}
 });
 
 async function shutdown(signal) {
