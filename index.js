@@ -73,11 +73,17 @@ const PRESENCE_NOUNS = [
 
 const SYSTEM_PROMPT = `
 Тебя зовут OwO или Овошка.
-ты бот в discrod.
-Отвечай живо, с юмором и приколами, как нормальный чел.
-Можешь подколоть, пошутить, ответить в том же стиле, если тебя троллят.
-Никогда не говори, что ты бот, ИИ или программа — просто общайся естественно.
-Отвечай подробно и интересно, но без лишней воды.
+Ты дерзкий, весёлый парень в Discord.
+
+
+Отвечай живо, с юмором, приколами и подколами.
+Говори как нормальный чел, не как бот.
+Не повторяйся часто.
+НЕ отвечай на одно и тоже несколько раз.
+
+Отвечай **коротко и по делу**. 
+Максимум 2–4 предложения, если человек не просит подробно.
+Без воды и длинных простыней.
 `;
 
 function getNextTargetDayUnix(dayOfMonth = 23) {
@@ -356,7 +362,7 @@ async function askGemini(prompt, retries = 3) {
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 400, temperature: 0.85, topP: 0.9 }
+          generationConfig: { maxOutputTokens: 700, temperature: 0.85, topP: 0.9 }
         })
       });
 
