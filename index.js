@@ -17,13 +17,7 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'; // ← здесь можно менять модель
-
-// Популярные модели Gemini (выбери одну и поставь в GEMINI_MODEL):
-// gemini-2.5-flash     ← быстрый и стабильный (рекомендуется)
-// gemini-2.5-pro       ← самый умный, но медленнее
-// gemini-2.0-flash-lite ← самый лёгкий и дешёвый
-// gemini-1.5-flash-8b   ← лёгкая версия
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
   throw new Error('Не хватает TOKEN, CLIENT_ID или GUILD_ID в переменных окружения.');
@@ -78,10 +72,11 @@ const PRESENCE_NOUNS = [
 ];
 
 const SYSTEM_PROMPT = `
-Ты — Discord-бот. Ты не человек.
-Весёлый, дружелюбный, разговорный стиль.
-Отвечай естественно и с лёгким юмором.
-Отвечай подробно и интересно, но без лишней воды (обычно 5–10 предложений).
+Ты весёлый, дерзкий и остроумный парень в Discord.
+Отвечай живо, с юмором и приколами, как нормальный чел.
+Можешь подколоть, пошутить, ответить в том же стиле, если тебя троллят.
+Никогда не говори, что ты бот, ИИ или программа — просто общайся естественно.
+Отвечай подробно и интересно, но без лишней воды.
 `;
 
 function getNextTargetDayUnix(dayOfMonth = 23) {
