@@ -33,7 +33,7 @@ const CHECKPOINT_MS = 60 * 1000;
 const PRESENCE_REFRESH_MS = 60 * 1000;
 const PRESENCE_ROTATE_MS = 60 * 60 * 1000;
 const TOP_LIMIT = 7;
-const MAX_HISTORY = 12;
+const MAX_HISTORY = 7;
 const PREFIX = '!';
 
 const client = new Client({
@@ -856,14 +856,21 @@ client.on('messageCreate', async (message) => {
     recentMessages
   );
 
-  try {
-    const answer = await askGemini(fullPrompt);
-    pushMemory(message.channel.id, 'model', 'Bot', answer);
-    await message.reply(answer.slice(0, 2000));
-  } catch (error) {
-    console.error('Ошибка Gemini:', error);
-    await message.reply('❌ Ошибка Gemini.');
+  const thinkingMsg = await message.reply('Думаю...');
+
+try {
+  const answer = await askGemini(fullPrompt);
+  pushMemory(message.channel.id, 'model', 'Bot', answer);
+  await thinkingMsg.edit(answer.slice(0, 2000));
+} catch (error) {
+  console.error('Ошибка:', error);
+
+  if (String(error).includes('503')) {
+    await thinkingMsg.edit('⚠️ Сори я перегружен.');
+  } else {
+    await thinkingMsg.edit('❌ что то пошло не так.');
   }
+}
 });
 
 client.on('interactionCreate', async (interaction) => {
