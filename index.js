@@ -34,6 +34,7 @@ const PRESENCE_REFRESH_MS = 60 * 1000;
 const PRESENCE_ROTATE_MS = 60 * 60 * 1000;
 const TOP_LIMIT = 7;
 const MAX_HISTORY = 12;
+const PREFIX = '!';
 
 const client = new Client({
   intents: [
@@ -141,11 +142,13 @@ const PRESENCE_NOUNS = [
 ];
 
 const SYSTEM_PROMPT = `
-Ты Discord-бот.
-Отвечай по-русски.
-Учитывай последние сообщения в канале и кто их написал.
-Не притворяйся человеком.
-Если вопрос короткий — отвечай коротко.
+Ты — Discord-бот.
+Ты не человек и не скрываешь, что являешься ботом.
+У тебя весёлый, дружелюбный, разговорный характер.
+Отвечай естественно, иногда с лёгким юмором.
+Учитывай последние сообщения в канале и кто что написал.
+Не ругай пользователя за повторы без причины.
+Если контекста мало — отвечай коротко и по делу.
 `;
 
 function getNextTargetDayUnix(dayOfMonth = 23) {
@@ -501,17 +504,6 @@ async function registerCommands() {
       .setName('jtm')
       .setDescription('Зайти в твой войс')
       .toJSON(),
-
-    new SlashCommandBuilder()
-      .setName('ai')
-      .setDescription('Спросить Gemini')
-      .addStringOption((option) =>
-        option
-          .setName('prompt')
-          .setDescription('Что спросить у бота')
-          .setRequired(true)
-      )
-      .toJSON(),
   ];
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -652,14 +644,24 @@ function pushMemory(channelId, role, name, text) {
   saveAIMemory();
 }
 
-function buildPrompt(channelId, currentUserName, currentText) {
+function buildPrompt(channelId, currentUserName, currentText, recentMessages = []) {
   const history = getChannelHistory(channelId);
+
+  const recentBlock = recentMessages.length
+    ? [
+        '',
+        'Последние сообщения в чате:',
+        ...recentMessages.map((m) => `${m.name}: ${m.text}`),
+      ]
+    : [];
 
   const lines = [
     SYSTEM_PROMPT.trim(),
     '',
     'История диалога:',
     ...history.map((m) => `${m.name}: ${m.text}`),
+    ...recentBlock,
+    '',
     `${currentUserName}: ${currentText}`,
   ];
 
@@ -697,6 +699,20 @@ async function askGemini(prompt) {
   const data = await response.json();
   const parts = data?.candidates?.[0]?.content?.parts || [];
   return parts.map((p) => p.text || '').join('').trim() || 'Пустой ответ.';
+}
+
+async function getRecentMessages(channel, limit = 6, botMessageId = null) {
+  const fetched = await channel.messages.fetch({ limit }).catch(() => null);
+  if (!fetched) return [];
+
+  return [...fetched.values()]
+    .filter((m) => !m.author.bot)
+    .filter((m) => m.id !== botMessageId)
+    .reverse()
+    .map((m) => ({
+      name: m.member?.displayName || m.author.username,
+      text: m.content?.trim() || '[без текста]',
+    }));
 }
 
 client.once('ready', async () => {
@@ -764,33 +780,89 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
+  if (!message.guild) return;
   if (!message.content) return;
 
-  const botMentioned = message.mentions.has(client.user);
-  const repliedToBot =
-    message.reference?.messageId &&
-    (await message.channel.messages.fetch(message.reference.messageId).catch(() => null))?.author?.id === client.user.id;
+  const authorName = message.member?.displayName || message.author.username;
 
-  if (!botMentioned && !repliedToBot) return;
+  // --- 1. PREFIX !say ---
+  if (message.content.startsWith(PREFIX)) {
+    const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
+    const command = (args.shift() || '').toLowerCase();
 
+    if (command === 'say') {
+      const promptText = args.join(' ').trim();
+      if (!promptText) {
+        await message.reply(`Напиши текст после \`${PREFIX}say\`.`);
+        return;
+      }
+
+      const recentMessages = await getRecentMessages(message.channel, 6);
+
+      pushMemory(message.channel.id, 'user', authorName, promptText);
+
+      const fullPrompt = buildPrompt(
+        message.channel.id,
+        authorName,
+        promptText,
+        recentMessages
+      );
+
+      try {
+        const answer = await askGemini(fullPrompt);
+        pushMemory(message.channel.id, 'model', 'Bot', answer);
+        await message.reply(answer.slice(0, 2000));
+      } catch (error) {
+        console.error('Ошибка Gemini:', error);
+        await message.reply('❌ Ошибка Gemini.');
+      }
+
+      return;
+    }
+  }
+
+  // --- 2. УПОМИНАНИЕ БОТА ---
+  const isMentioned = message.mentions.has(client.user);
+
+  // --- 3. ОТВЕТ НА СООБЩЕНИЕ БОТА ---
+  let isReplyToBot = false;
+  if (message.reference?.messageId) {
+    const repliedMsg = await message.channel.messages
+      .fetch(message.reference.messageId)
+      .catch(() => null);
+
+    if (repliedMsg && repliedMsg.author.id === client.user.id) {
+      isReplyToBot = true;
+    }
+  }
+
+  if (!isMentioned && !isReplyToBot) return;
+
+  // убираем упоминание из текста
   const cleanText = message.content
     .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
     .trim();
 
-  const userText = cleanText || 'Привет';
-  const authorName = message.member?.displayName || message.author.username;
+  if (!cleanText) return;
 
-  pushMemory(message.channel.id, 'user', authorName, userText);
+  const recentMessages = await getRecentMessages(message.channel, 6);
 
-  const prompt = buildPrompt(message.channel.id, authorName, userText);
+  pushMemory(message.channel.id, 'user', authorName, cleanText);
+
+  const fullPrompt = buildPrompt(
+    message.channel.id,
+    authorName,
+    cleanText,
+    recentMessages
+  );
 
   try {
-    const answer = await askGemini(prompt);
+    const answer = await askGemini(fullPrompt);
     pushMemory(message.channel.id, 'model', 'Bot', answer);
     await message.reply(answer.slice(0, 2000));
   } catch (error) {
     console.error('Ошибка Gemini:', error);
-    await message.reply('❌ Не смог получить ответ от Gemini.');
+    await message.reply('❌ Ошибка Gemini.');
   }
 });
 
@@ -920,28 +992,6 @@ client.on('interactionCreate', async (interaction) => {
     } catch (error) {
       console.error('Ошибка jtm:', error);
       await interaction.editReply({ content: '❌ Не удалось подключиться к войсу.' });
-    }
-
-    return;
-  }
-
-  if (interaction.commandName === 'ai') {
-    await interaction.deferReply();
-
-    const prompt = interaction.options.getString('prompt', true);
-    const authorName = interaction.user.username;
-
-    pushMemory(interaction.channel.id, 'user', authorName, prompt);
-
-    const fullPrompt = buildPrompt(interaction.channel.id, authorName, prompt);
-
-    try {
-      const answer = await askGemini(fullPrompt);
-      pushMemory(interaction.channel.id, 'model', 'Bot', answer);
-      await interaction.editReply(answer.slice(0, 2000));
-    } catch (error) {
-      console.error('Ошибка Gemini:', error);
-      await interaction.editReply('❌ Не смог получить ответ от Gemini.');
     }
 
     return;
