@@ -435,6 +435,7 @@ async function registerCommands() {
       .setName('ping')
       .setDescription('Проверить отклик бота')
       .toJSON(),
+
     new SlashCommandBuilder()
       .setName('msg')
       .setDescription('Отправить сообщение от имени бота в выбранный канал')
@@ -452,25 +453,25 @@ async function registerCommands() {
           .setRequired(true)
       )
       .toJSON(),
-    new SlashCommandBuilder()
-  .setName('purge')
-  .setDescription('Удалить последние N сообщений')
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
-  .addIntegerOption((option) =>
-    option
-      .setName('amount')
-      .setDescription('Сколько удалить')
-      .setRequired(true)
-      .setMinValue(1)
-      .setMaxValue(100)
-  )
-  .toJSON(),
 
-new SlashCommandBuilder()
-  .setName('jtm')
-  .setDescription('Зайти в твой войс')
-  .toJSON(),
-    
+    new SlashCommandBuilder()
+      .setName('purge')
+      .setDescription('Удалить последние N сообщений')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+      .addIntegerOption((option) =>
+        option
+          .setName('amount')
+          .setDescription('Сколько удалить')
+          .setRequired(true)
+          .setMinValue(1)
+          .setMaxValue(100)
+      )
+      .toJSON(),
+
+    new SlashCommandBuilder()
+      .setName('jtm')
+      .setDescription('Зайти в твой войс')
+      .toJSON(),
   ];
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -585,6 +586,7 @@ function buildLifeEmbed() {
     )
     .setTimestamp();
 }
+
 client.once('ready', async () => {
   console.log(`✅ Бот онлайн: ${client.user.tag}`);
 
@@ -657,7 +659,8 @@ client.on('interactionCreate', async (interaction) => {
     });
     return;
   }
-    if (interaction.commandName === 'msg') {
+
+  if (interaction.commandName === 'msg') {
     await interaction.deferReply({ ephemeral: true });
 
     const channel = interaction.options.getChannel('channel', true);
@@ -717,38 +720,65 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.editReply({ embeds: [embed] });
     return;
   }
+
   if (interaction.commandName === 'purge') {
-  await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: true });
 
-  const amount = interaction.options.getInteger('amount', true);
+    const amount = interaction.options.getInteger('amount', true);
 
-  try {
-    const deleted = await interaction.channel.bulkDelete(amount, true);
-    await interaction.editReply(`Удалено: ${deleted.size}`);
-  } catch (e) {
-    await interaction.editReply('Ошибка удаления');
-  }
+    if (!interaction.channel || !interaction.channel.isTextBased()) {
+      await interaction.editReply({ content: '❌ Это не текстовый канал.' });
+      return;
+    }
 
-  return;
-}
-  if (interaction.commandName === 'jtm') {
-  await interaction.deferReply({ ephemeral: true });
+    try {
+      const deleted = await interaction.channel.bulkDelete(amount, true);
+      await interaction.editReply({ content: `✅ Удалено сообщений: **${deleted.size}**` });
+    } catch (error) {
+      console.error('Ошибка purge:', error);
+      await interaction.editReply({ content: '❌ Не удалось удалить сообщения.' });
+    }
 
-  const channel = interaction.member.voice.channel;
-  if (!channel) {
-    await interaction.editReply('Ты не в войсе');
     return;
   }
 
-  joinVoiceChannel({
-    channelId: channel.id,
-    guildId: interaction.guild.id,
-    adapterCreator: interaction.guild.voiceAdapterCreator,
-  });
+  if (interaction.commandName === 'jtm') {
+    await interaction.deferReply({ ephemeral: true });
 
-  await interaction.editReply('Зашёл в войс');
-  return;
-}
+    const voiceChannel = interaction.member?.voice?.channel;
+    if (!voiceChannel) {
+      await interaction.editReply({ content: '❌ Ты не в войсе.' });
+      return;
+    }
+
+    const me = interaction.guild.members.me;
+    const perms = voiceChannel.permissionsFor(me);
+
+    if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect])) {
+      await interaction.editReply({ content: '❌ У меня нет прав зайти в этот войс.' });
+      return;
+    }
+
+    try {
+      const existing = getVoiceConnection(interaction.guild.id);
+      if (existing) existing.destroy();
+
+      joinVoiceChannel({
+        channelId: voiceChannel.id,
+        guildId: interaction.guild.id,
+        adapterCreator: interaction.guild.voiceAdapterCreator,
+        selfDeaf: false,
+        selfMute: false,
+      });
+
+      await interaction.editReply({ content: `✅ Зашёл в ${voiceChannel}.` });
+    } catch (error) {
+      console.error('Ошибка jtm:', error);
+      await interaction.editReply({ content: '❌ Не удалось подключиться к войсу.' });
+    }
+
+    return;
+  }
 });
 
 async function shutdown(signal) {
