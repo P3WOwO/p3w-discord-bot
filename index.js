@@ -17,7 +17,7 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
   throw new Error('Не хватает TOKEN, CLIENT_ID или GUILD_ID в переменных окружения.');
@@ -356,7 +356,7 @@ async function askGemini(prompt, retries = 3) {
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 700, temperature: 0.85, topP: 0.9 }
+          generationConfig: { maxOutputTokens: 400, temperature: 0.85, topP: 0.9 }
         })
       });
 
