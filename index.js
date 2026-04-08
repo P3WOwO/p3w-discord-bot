@@ -31,8 +31,8 @@ const AI_MEMORY_FILE = `${DATA_DIR}/ai_memory.json`;
 const CHECKPOINT_MS = 60 * 1000;
 const PRESENCE_REFRESH_MS = 60 * 1000;
 const PRESENCE_ROTATE_MS = 60 * 60 * 1000;
-const TOP_LIMIT = 7;
-const MAX_HISTORY = 7;
+const TOP_LIMIT = 10;
+const MAX_HISTORY = 10;
 const PREFIX = '!';
 
 const client = new Client({
@@ -357,7 +357,7 @@ function buildLifeEmbed() {
   return new EmbedBuilder()
     .setColor(0x57f287)
     .setTitle('💚 /life')
-    .setDescription(`**${formatTime(lifeSeconds)}**\n\nСледующая дата: <t:${targetUnix}:R>`)
+    .setDescription(`**${formatTime(lifeSeconds)}**\n\nЯ умру: <t:${targetUnix}:R>`)
     .setTimestamp();
 }
 
