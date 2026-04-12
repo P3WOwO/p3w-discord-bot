@@ -35,6 +35,16 @@ const TOP_LIMIT = 10;
 const MAX_HISTORY = 10;
 const PREFIX = '!';
 
+const HOME_GUILD_ONLY_REPLY = 'Увы, я не на родном сервере, нечем не помогу';
+
+function isHomeGuild(guildId) {
+  return guildId === GUILD_ID;
+}
+
+function isAdmin(memberPermissions) {
+  return memberPermissions?.has(PermissionFlagsBits.Administrator);
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -275,14 +285,31 @@ async function rotatePresencePhrase() {
 }
 
 async function registerCommands() {
+  const adminOnly = PermissionFlagsBits.Administrator;
+
   const commands = [
     new SlashCommandBuilder().setName('time').setDescription('Показать время, проведённое в голосовых каналах').addUserOption(option => option.setName('user').setDescription('Пользователь (если не указать — покажет твоё время)').setRequired(false)).toJSON(),
     new SlashCommandBuilder().setName('top').setDescription('Показать топ по времени в голосовых каналах').addUserOption(option => option.setName('user').setDescription('Пользователь, которого тоже надо показать внизу, если он не в топе').setRequired(false)).toJSON(),
     new SlashCommandBuilder().setName('life').setDescription('Показать, сколько живёт бот').toJSON(),
     new SlashCommandBuilder().setName('ping').setDescription('Проверить отклик бота').toJSON(),
-    new SlashCommandBuilder().setName('msg').setDescription('Отправить сообщение от имени бота в выбранный канал').addChannelOption(option => option.setName('channel').setDescription('Канал, куда отправить сообщение').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)).addStringOption(option => option.setName('message').setDescription('Текст сообщения').setRequired(true)).toJSON(),
-    new SlashCommandBuilder().setName('purge').setDescription('Удалить последние N сообщений').setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages).addIntegerOption(option => option.setName('amount').setDescription('Сколько удалить').setRequired(true).setMinValue(1).setMaxValue(100)).toJSON(),
-    new SlashCommandBuilder().setName('jtm').setDescription('Зайти в твой войс').toJSON(),
+    new SlashCommandBuilder()
+      .setName('msg')
+      .setDescription('Отправить сообщение от имени бота в выбранный канал')
+      .setDefaultMemberPermissions(adminOnly)
+      .addChannelOption(option => option.setName('channel').setDescription('Канал, куда отправить сообщение').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+      .addStringOption(option => option.setName('message').setDescription('Текст сообщения').setRequired(true))
+      .toJSON(),
+    new SlashCommandBuilder()
+      .setName('purge')
+      .setDescription('Удалить последние N сообщений')
+      .setDefaultMemberPermissions(adminOnly)
+      .addIntegerOption(option => option.setName('amount').setDescription('Сколько удалить').setRequired(true).setMinValue(1).setMaxValue(100))
+      .toJSON(),
+    new SlashCommandBuilder()
+      .setName('jtm')
+      .setDescription('Зайти в твой войс')
+      .setDefaultMemberPermissions(adminOnly)
+      .toJSON(),
   ];
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -475,6 +502,15 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild || !message.content) return;
+
+  if (!isHomeGuild(message.guild.id)) {
+    const isCommandLike = message.content.startsWith(PREFIX) || message.mentions.has(client.user);
+    if (isCommandLike) {
+      return message.reply(HOME_GUILD_ONLY_REPLY).catch(() => {});
+    }
+    return;
+  }
+
   const authorName = message.member?.displayName || message.author.username;
 
   if (message.content.startsWith(PREFIX)) {
@@ -522,6 +558,14 @@ client.on('messageCreate', async (message) => {
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
+
+  if (!interaction.guildId || !isHomeGuild(interaction.guildId)) {
+    return interaction.reply({ content: HOME_GUILD_ONLY_REPLY, ephemeral: true }).catch(() => {});
+  }
+
+  if (['msg', 'purge', 'jtm'].includes(interaction.commandName) && !isAdmin(interaction.memberPermissions)) {
+    return interaction.reply({ content: '❌ Эта команда только для админов сервера.', ephemeral: true }).catch(() => {});
+  }
 
   if (interaction.commandName === 'ping') {
     return interaction.reply({ content: `🏓 Pong! \`${client.ws.ping}ms\``, ephemeral: true });
