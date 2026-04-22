@@ -23,7 +23,7 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
   throw new Error('Не хватает TOKEN, CLIENT_ID или GUILD_ID в переменных окружения.');
 }
 
-const DATA_DIR = './data';
+const DATA_DIR = '/data';
 const VOICE_DATA_FILE = `${DATA_DIR}/voice_times.json`;
 const LIFE_DATA_FILE = `${DATA_DIR}/life_state.json`;
 const AI_MEMORY_FILE = `${DATA_DIR}/ai_memory.json`;
